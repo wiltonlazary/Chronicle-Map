@@ -1,29 +1,31 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.set;
 
 import net.openhft.chronicle.hash.ChronicleHashBuilder;
 import net.openhft.chronicle.hash.ChronicleHashBuilderPrivateAPI;
+import net.openhft.chronicle.hash.ChronicleHashCorruption;
 import net.openhft.chronicle.hash.Data;
 import net.openhft.chronicle.hash.serialization.*;
 import net.openhft.chronicle.map.*;
 import net.openhft.chronicle.map.replication.MapRemoteOperations;
 import org.jetbrains.annotations.NotNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -31,7 +33,7 @@ import java.io.IOException;
 /**
  * {@code ChronicleSetBuilder} manages the whole set of {@link ChronicleSet} configurations, could
  * be used as a classic builder and/or factory.
- *
+ * <p>
  * <p>{@code ChronicleMapBuilder} is mutable, see a note in {@link
  * ChronicleHashBuilder} interface documentation.
  *
@@ -41,6 +43,16 @@ import java.io.IOException;
  */
 public final class ChronicleSetBuilder<K>
         implements ChronicleHashBuilder<K, ChronicleSet<K>, ChronicleSetBuilder<K>> {
+
+    private static final Logger chronicleSetLogger = LoggerFactory.getLogger(ChronicleSet.class);
+    private static final ChronicleHashCorruption.Listener defaultChronicleSetCorruptionListener =
+            corruption -> {
+                if (corruption.exception() != null) {
+                    chronicleSetLogger.error(corruption.message(), corruption.exception());
+                } else {
+                    chronicleSetLogger.error(corruption.message());
+                }
+            };
 
     private ChronicleMapBuilder<K, DummyValue> chronicleMapBuilder;
     private ChronicleSetBuilderPrivateAPI<K> privateAPI;
@@ -60,9 +72,9 @@ public final class ChronicleSetBuilder<K>
      * Returns a new {@code ChronicleSetBuilder} instance which is able to {@linkplain #create()
      * create} sets with the specified key class.
      *
-     * @param keyClass   class object used to infer key type and discover it's properties via
-     *                   reflection
-     * @param <K>        key type of the sets, created by the returned builder
+     * @param keyClass class object used to infer key type and discover it's properties via
+     *                 reflection
+     * @param <K>      key type of the sets, created by the returned builder
      * @return a new builder for the given key class
      */
     public static <K> ChronicleSetBuilder<K> of(Class<K> keyClass) {
@@ -72,8 +84,7 @@ public final class ChronicleSetBuilder<K>
     @Override
     public ChronicleSetBuilder<K> clone() {
         try {
-            @SuppressWarnings("unchecked")
-            final ChronicleSetBuilder<K> result = (ChronicleSetBuilder<K>) super.clone();
+            @SuppressWarnings("unchecked") final ChronicleSetBuilder<K> result = (ChronicleSetBuilder<K>) super.clone();
             result.chronicleMapBuilder = chronicleMapBuilder.clone();
             return result;
         } catch (CloneNotSupportedException e) {
@@ -113,21 +124,21 @@ public final class ChronicleSetBuilder<K>
 
     /**
      * {@inheritDoc}
-     *
+     * <p>
      * <p>Example: if keys in your set(s) are English words in {@link String} form, average English
      * word length is 5.1, configure average key size of 6: <pre>{@code
      * ChronicleSet<String> uniqueWords = ChronicleSetBuilder.of(String.class)
      *     .entries(50000)
      *     .averageKeySize(6)
      *     .create();}</pre>
-     *
+     * <p>
      * <p>(Note that 6 is chosen as average key size in bytes despite strings in Java are UTF-16
      * encoded (and each character takes 2 bytes on-heap), because default off-heap {@link String}
      * encoding is UTF-8 in {@code ChronicleSet}.)
      *
+     * @param averageKeySize the average size in bytes of the key
      * @see #constantKeySizeBySample(Object)
      * @see #actualChunkSize(int)
-     * @param averageKeySize   the average size in bytes of the key
      */
     @Override
     public ChronicleSetBuilder<K> averageKeySize(double averageKeySize) {
@@ -143,7 +154,7 @@ public final class ChronicleSetBuilder<K>
 
     /**
      * {@inheritDoc}
-     *
+     * <p>
      * <p>For example, if your keys are Git commit hashes:<pre>{@code
      * Set<byte[]> gitCommitsOfInterest = ChronicleSetBuilder.of(byte[].class)
      *     .constantKeySizeBySample(new byte[20])
@@ -269,7 +280,7 @@ public final class ChronicleSetBuilder<K>
     /**
      * Inject your SPI code around basic {@code ChronicleSet}'s operations with entries:
      * removing entries and inserting new entries.
-     *
+     * <p>
      * <p>This affects behaviour of ordinary set.add(), set.remove(), calls, as well as removes
      * <i>during iterations</i>, updates during <i>remote calls</i> and
      * <i>internal replication operations</i>.
@@ -306,16 +317,45 @@ public final class ChronicleSetBuilder<K>
 
     @Override
     public ChronicleSet<K> createOrRecoverPersistedTo(File file) throws IOException {
-        ChronicleMap<K, DummyValue> map = chronicleMapBuilder.createOrRecoverPersistedTo(file);
+        return createOrRecoverPersistedTo(file, true);
+    }
+
+    @Override
+    public ChronicleSet<K> createOrRecoverPersistedTo(File file, boolean sameLibraryVersion)
+            throws IOException {
+        return createOrRecoverPersistedTo(file, sameLibraryVersion,
+                defaultChronicleSetCorruptionListener);
+    }
+
+    @Override
+    public ChronicleSet<K> createOrRecoverPersistedTo(
+            File file, boolean sameLibraryVersion,
+            ChronicleHashCorruption.Listener corruptionListener) throws IOException {
+        ChronicleMap<K, DummyValue> map = chronicleMapBuilder.createOrRecoverPersistedTo(
+                file, sameLibraryVersion, corruptionListener);
         return new SetFromMap<>((VanillaChronicleMap<K, DummyValue, ?>) map);
     }
 
     @Override
-    public ChronicleSet<K> recoverPersistedTo(File file, boolean sameBuilderConfig)
+    public ChronicleSet<K> recoverPersistedTo(File file, boolean sameBuilderConfigAndLibraryVersion)
             throws IOException {
-        ChronicleMap<K, DummyValue> map =
-                chronicleMapBuilder.recoverPersistedTo(file, sameBuilderConfig);
+        return recoverPersistedTo(file, sameBuilderConfigAndLibraryVersion,
+                defaultChronicleSetCorruptionListener);
+    }
+
+    @Override
+    public ChronicleSet<K> recoverPersistedTo(
+            File file, boolean sameBuilderConfigAndLibraryVersion,
+            ChronicleHashCorruption.Listener corruptionListener) throws IOException {
+        ChronicleMap<K, DummyValue> map = chronicleMapBuilder.recoverPersistedTo(
+                file, sameBuilderConfigAndLibraryVersion, corruptionListener);
         return new SetFromMap<>((VanillaChronicleMap<K, DummyValue, ?>) map);
+    }
+
+    @Override
+    public ChronicleSetBuilder<K> setPreShutdownAction(Runnable preShutdownAction) {
+        chronicleMapBuilder.setPreShutdownAction(preShutdownAction);
+        return this;
     }
 
     /**

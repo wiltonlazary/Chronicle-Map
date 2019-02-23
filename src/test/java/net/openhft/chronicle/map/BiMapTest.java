@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.map;
@@ -35,7 +34,101 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 public class BiMapTest {
-    
+
+    private static <K, V> void verifyBiMapConsistent(Map<K, V> m1, Map<V, K> m2) {
+        assertEquals(m1.size(), m2.size());
+        for (Entry<K, V> e : m1.entrySet()) {
+            assertEquals(e.getKey(), m2.get(e.getValue()));
+        }
+    }
+
+    @Test
+    public void biMapTest() throws InterruptedException, ExecutionException {
+        BiMapEntryOperations<Integer, CharSequence> biMapOps1 = new BiMapEntryOperations<>();
+        ChronicleMap<Integer, CharSequence> map1 = ChronicleMapBuilder
+                .of(Integer.class, CharSequence.class)
+                .entries(100)
+                .actualSegments(1)
+                .averageValueSize(10)
+                .entryOperations(biMapOps1)
+                .mapMethods(new BiMapMethods<>())
+                .create();
+
+        BiMapEntryOperations<CharSequence, Integer> biMapOps2 = new BiMapEntryOperations<>();
+        ChronicleMap<CharSequence, Integer> map2 = ChronicleMapBuilder
+                .of(CharSequence.class, Integer.class)
+                .entries(100)
+                .actualSegments(1)
+                .averageKeySize(10)
+                .entryOperations(biMapOps2)
+                .mapMethods(new BiMapMethods<>())
+                .create();
+
+        biMapOps1.setReverse(map2);
+        biMapOps2.setReverse(map1);
+
+        map1.put(1, "1");
+        verifyBiMapConsistent(map1, map2);
+
+        map2.remove("1");
+        assertTrue(map2.isEmpty());
+        verifyBiMapConsistent(map1, map2);
+
+        map1.put(3, "4");
+        map2.put("5", 6);
+        verifyBiMapConsistent(map1, map2);
+
+        try (ExternalMapQueryContext<CharSequence, Integer, ?> q = map2.queryContext("4")) {
+            q.updateLock().lock();
+            q.entry().doRemove();
+        }
+
+        try {
+            map1.remove(3);
+            throw new AssertionError("expected IllegalStateException");
+        } catch (IllegalStateException e) {
+            // expected
+        }
+
+        try {
+            map2.put("4", 6);
+            throw new AssertionError("expected IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
+            // expected
+        }
+
+        map2.put("4", 3); // recover
+        verifyBiMapConsistent(map1, map2);
+
+        map1.clear();
+        verifyBiMapConsistent(map1, map2);
+
+        ForkJoinPool pool = new ForkJoinPool(8);
+        try {
+            pool.submit(() -> {
+                ThreadLocalRandom.current().ints().limit(10_000).parallel().forEach(i -> {
+                    int v = Math.abs(i % 10);
+                    if ((i & 1) == 0) {
+                        if ((i & 2) == 0) {
+                            map1.putIfAbsent(v, "" + v);
+                        } else {
+                            map1.remove(v, "" + v);
+                        }
+                    } else {
+                        if ((i & 2) == 0) {
+                            map2.putIfAbsent("" + v, v);
+                        } else {
+                            map2.remove("" + v, v);
+                        }
+                    }
+                });
+            }).get();
+            verifyBiMapConsistent(map1, map2);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
     enum DualLockSuccess {SUCCESS, FAIL}
 
     static class BiMapMethods<K, V> implements MapMethods<K, V, DualLockSuccess> {
@@ -215,100 +308,6 @@ public class BiMapTest {
                             "map this value already maps to " + reverseKey);
                 }
             }
-        }
-    }
-    
-    @Test
-    public void biMapTest() throws InterruptedException, ExecutionException {
-        BiMapEntryOperations<Integer, CharSequence> biMapOps1 = new BiMapEntryOperations<>();
-        ChronicleMap<Integer, CharSequence> map1 = ChronicleMapBuilder
-                .of(Integer.class, CharSequence.class)
-                .entries(100)
-                .actualSegments(1)
-                .averageValueSize(10)
-                .entryOperations(biMapOps1)
-                .mapMethods(new BiMapMethods<>())
-                .create();
-
-        BiMapEntryOperations<CharSequence, Integer> biMapOps2 = new BiMapEntryOperations<>();
-        ChronicleMap<CharSequence, Integer> map2 = ChronicleMapBuilder
-                .of(CharSequence.class, Integer.class)
-                .entries(100)
-                .actualSegments(1)
-                .averageKeySize(10)
-                .entryOperations(biMapOps2)
-                .mapMethods(new BiMapMethods<>())
-                .create();
-
-        biMapOps1.setReverse(map2);
-        biMapOps2.setReverse(map1);
-
-        map1.put(1, "1");
-        verifyBiMapConsistent(map1, map2);
-        
-        map2.remove("1");
-        assertTrue(map2.isEmpty());
-        verifyBiMapConsistent(map1, map2);
-
-        map1.put(3, "4");
-        map2.put("5", 6);
-        verifyBiMapConsistent(map1, map2);
-
-        try (ExternalMapQueryContext<CharSequence, Integer, ?> q = map2.queryContext("4")) {
-            q.updateLock().lock();
-            q.entry().doRemove();
-        }
-        
-        try {
-            map1.remove(3);
-            throw new AssertionError("expected IllegalStateException");
-        } catch (IllegalStateException e) {
-            // expected
-        }
-        
-        try {
-            map2.put("4", 6);
-            throw new AssertionError("expected IllegalArgumentException");
-        } catch (IllegalArgumentException e) {
-            // expected
-        }
-        
-        map2.put("4", 3); // recover
-        verifyBiMapConsistent(map1, map2);
-
-        map1.clear();
-        verifyBiMapConsistent(map1, map2);
-        
-        ForkJoinPool pool = new ForkJoinPool(8);
-        try {
-            pool.submit(() -> {
-                ThreadLocalRandom.current().ints().limit(10_000).parallel().forEach(i -> {
-                    int v = Math.abs(i % 10);
-                    if ((i & 1) == 0) {
-                        if ((i & 2) == 0) {
-                            map1.putIfAbsent(v, "" + v);
-                        } else {
-                            map1.remove(v, "" + v);
-                        }
-                    } else {
-                        if ((i & 2) == 0) {
-                            map2.putIfAbsent("" + v, v);
-                        } else {
-                            map2.remove("" + v, v);
-                        }
-                    }
-                });
-            }).get();
-            verifyBiMapConsistent(map1, map2);
-        } finally {
-            pool.shutdownNow();
-        }
-    }
-    
-    private static <K, V> void verifyBiMapConsistent(Map<K, V> m1, Map<V, K> m2) {
-        assertEquals(m1.size(), m2.size());
-        for (Entry<K, V> e : m1.entrySet()) {
-            assertEquals(e.getKey(), m2.get(e.getValue()));
         }
     }
 }

@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.map;
@@ -29,49 +28,27 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.Assert.*;
 
 public class ListenersTest {
-    
-    static class CountingEntryOperations<K, V> implements MapEntryOperations<K, V, Void> {
-        AtomicInteger removeCount = new AtomicInteger();
-        AtomicInteger insertCount = new AtomicInteger();
-        AtomicInteger replaceValueCount = new AtomicInteger();
-        @Override
-        public Void remove(@NotNull MapEntry<K, V> entry) {
-            removeCount.incrementAndGet();
-            return MapEntryOperations.super.remove(entry);
-        }
-        @Override
-        public Void replaceValue(@NotNull MapEntry<K, V> entry, Data<V> newValue) {
-            replaceValueCount.incrementAndGet();
-            return MapEntryOperations.super.replaceValue(entry, newValue);
-        }
 
-        @Override
-        public Void insert(@NotNull MapAbsentEntry<K, V> absentEntry, Data<V> value) {
-            insertCount.incrementAndGet();
-            return MapEntryOperations.super.insert(absentEntry, value);
-        }
-    }
-    
     @Test
     public void testAnyRemove() {
         CountingEntryOperations<Integer, Integer> removeCounting =
                 new CountingEntryOperations<>();
         ChronicleMap<Integer, Integer> map =
                 ChronicleMapBuilder.of(Integer.class, Integer.class)
-                .entries(100)
-                .entryOperations(removeCounting)
-                .create();
-        
+                        .entries(100)
+                        .entryOperations(removeCounting)
+                        .create();
+
         map.put(1, 1);
         map.remove(1); // removeCount 1
-        
+
         map.put(1, 1);
         assertFalse(map.remove(1, 2));
         map.remove(1, 1); // removeCount 2
-        
+
         map.put(1, 1);
         map.merge(1, 1, (v1, v2) -> null); // removeCount 3
-        
+
         map.put(1, 1);
         Iterator<Map.Entry<Integer, Integer>> it = map.entrySet().iterator();
         it.next();
@@ -94,15 +71,15 @@ public class ListenersTest {
 
         map.put(1, 2); // replaceValue 1
         map.compute(1, (k, v) -> 2); // replaceValue 2
-        
+
         map.entrySet().iterator().next().setValue(1); // replaceValue 3
-        
+
         map.compute(2, (k, v) -> 1); // insert 2
 
         assertEquals(3, putCounting.replaceValueCount.get());
         assertEquals(2, putCounting.insertCount.get());
     }
-    
+
     @Test
     public void testContainsKey() {
         AtomicInteger c = new AtomicInteger();
@@ -119,14 +96,14 @@ public class ListenersTest {
                             }
                         })
                         .create();
-        
+
         assertFalse(map.containsKey(1)); // 1
         map.put(1, 1);
         assertTrue(map.containsKey(1)); // 2
-        
+
         map.put(2, 2);
         assertFalse(map.containsKey(2));
-        
+
         assertEquals(2, c.get());
     }
 
@@ -188,13 +165,37 @@ public class ListenersTest {
 
         assertNull(map.put(1, 1)); // 1
         assertEquals(1, map.put(1, 2).intValue()); // 2
-        
+
         assertNull(map.put(2, 1));
         assertNull(map.put(2, 2));
-        
+
         assertNull(map.put(3, 1));
         assertEquals(2, map.get(3).intValue());
 
         assertEquals(2, c.get());
+    }
+
+    static class CountingEntryOperations<K, V> implements MapEntryOperations<K, V, Void> {
+        AtomicInteger removeCount = new AtomicInteger();
+        AtomicInteger insertCount = new AtomicInteger();
+        AtomicInteger replaceValueCount = new AtomicInteger();
+
+        @Override
+        public Void remove(@NotNull MapEntry<K, V> entry) {
+            removeCount.incrementAndGet();
+            return MapEntryOperations.super.remove(entry);
+        }
+
+        @Override
+        public Void replaceValue(@NotNull MapEntry<K, V> entry, Data<V> newValue) {
+            replaceValueCount.incrementAndGet();
+            return MapEntryOperations.super.replaceValue(entry, newValue);
+        }
+
+        @Override
+        public Void insert(@NotNull MapAbsentEntry<K, V> absentEntry, Data<V> value) {
+            insertCount.incrementAndGet();
+            return MapEntryOperations.super.insert(absentEntry, value);
+        }
     }
 }

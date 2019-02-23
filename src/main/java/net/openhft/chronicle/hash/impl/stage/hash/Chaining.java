@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.hash.impl.stage.hash;
@@ -34,6 +33,10 @@ public abstract class Chaining extends ChainingInterface {
      * First context, ever created in this thread. rootContextInThisThread === contextChain.get(0).
      */
     public final ChainingInterface rootContextInThisThread;
+    @Stage("Used")
+    public boolean used;
+    @Stage("Used")
+    private boolean firstContextLockedInThisThread;
 
     public Chaining(VanillaChronicleMap map) {
         contextChain = new ArrayList<>();
@@ -42,13 +45,29 @@ public abstract class Chaining extends ChainingInterface {
         rootContextInThisThread = this;
         initMap(map);
     }
-    
+
     public Chaining(ChainingInterface rootContextInThisThread, VanillaChronicleMap map) {
         contextChain = rootContextInThisThread.getContextChain();
         indexInContextChain = contextChain.size();
         contextChain.add(this);
         this.rootContextInThisThread = rootContextInThisThread;
         initMap(map);
+    }
+
+    private static <T extends ChainingInterface> T initUsedAndReturn(
+            VanillaChronicleMap map, ChainingInterface context) {
+        try {
+            context.initUsed(true, map);
+            //noinspection unchecked
+            return (T) context;
+        } catch (Throwable throwable) {
+            try {
+                ((AutoCloseable) context).close();
+            } catch (Throwable t) {
+                throwable.addSuppressed(t);
+            }
+            throw throwable;
+        }
     }
 
     @Override
@@ -67,7 +86,7 @@ public abstract class Chaining extends ChainingInterface {
      * set only once during context creation. It was preventing ChronicleMap objects from becoming
      * dead and collected by the GC, while any thread, from which the ChronicleMap was accessed
      * (hence a thread local context created), is alive.
-     *
+     * <p>
      * <p>The chain of strong references:
      * 1) Thread ->
      * 2) ThreadLocalMap ->
@@ -77,14 +96,11 @@ public abstract class Chaining extends ChainingInterface {
      * 4) final reference to the owner {@link VanillaChronicleMap} ->
      * 5) ThreadLocal {@link net.openhft.chronicle.map.VanillaChronicleMap#cxt} (a strong reference
      * this time! note that this ThreadLocal is an instance field of VanillaChronicleMap)
-     *
+     * <p>
      * <p>So in order to break this chain at step 4), contexts store references to their owner
      * ChronicleMaps only when contexts are used.
      */
     public abstract void initMap(VanillaChronicleMap map);
-
-    @Stage("Used") public boolean used;
-    @Stage("Used") private boolean firstContextLockedInThisThread;
 
     @Override
     public boolean usedInit() {
@@ -132,21 +148,5 @@ public abstract class Chaining extends ChainingInterface {
         //noinspection unchecked
         T context = createChaining.apply(this, map);
         return initUsedAndReturn(map, context);
-    }
-
-    private static <T extends ChainingInterface> T initUsedAndReturn(
-            VanillaChronicleMap map, ChainingInterface context) {
-        try {
-            context.initUsed(true, map);
-            //noinspection unchecked
-            return (T) context;
-        } catch (Throwable throwable) {
-            try {
-                ((AutoCloseable) context).close();
-            } catch (Throwable t) {
-                throwable.addSuppressed(t);
-            }
-            throw throwable;
-        }
     }
 }

@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.map;
@@ -24,6 +23,7 @@ import net.openhft.chronicle.bytes.PointerBytesStore;
 import net.openhft.chronicle.core.Jvm;
 import net.openhft.chronicle.core.io.Closeable;
 import net.openhft.chronicle.hash.ChronicleHashClosedException;
+import net.openhft.chronicle.hash.ChronicleHashCorruption;
 import net.openhft.chronicle.hash.Data;
 import net.openhft.chronicle.hash.impl.*;
 import net.openhft.chronicle.hash.impl.stage.entry.LocksInterface;
@@ -55,20 +55,31 @@ public class VanillaChronicleMap<K, V, R>
         ExternalMapQueryContext<K, V, ?>>
         implements AbstractChronicleMap<K, V> {
 
-    /////////////////////////////////////////////////
-    // Value Data model
-    Class<V> valueClass;
     public SizeMarshaller valueSizeMarshaller;
     public SizedReader<V> valueReader;
     public DataAccess<V> valueDataAccess;
-
     public boolean constantlySizedEntry;
-
     /////////////////////////////////////////////////
     // Memory management and dependent fields
     public int alignment;
     public int worstAlignment;
-
+    public transient boolean couldNotDetermineAlignmentBeforeAllocation;
+    /**
+     * @see net.openhft.chronicle.set.SetFromMap
+     */
+    public transient ChronicleSet<K> chronicleSet;
+    public transient MapEntryOperations<K, V, R> entryOperations;
+    public transient MapMethods<K, V, R> methods;
+    public transient DefaultValueProvider<K, V> defaultValueProvider;
+    /////////////////////////////////////////////////
+    // Value Data model
+    Class<V> valueClass;
+    /////////////////////////////////////////////////
+    // Behavior
+    transient boolean putReturnsNull;
+    transient boolean removeReturnsNull;
+    transient Set<Entry<K, V>> entrySet;
+    transient ThreadLocal<ContextHolder> cxt;
     /////////////////////////////////////////////////
     private transient String name;
     /**
@@ -77,25 +88,7 @@ public class VanillaChronicleMap<K, V, R>
      * initOwnTransients().
      */
     private transient String identityString;
-
-    public transient boolean couldNotDetermineAlignmentBeforeAllocation;
-
-    /////////////////////////////////////////////////
-    // Behavior
-    transient boolean putReturnsNull;
-    transient boolean removeReturnsNull;
-
-    transient Set<Entry<K, V>> entrySet;
-
-    /** @see net.openhft.chronicle.set.SetFromMap */
-    public transient ChronicleSet<K> chronicleSet;
-    
-    public transient MapEntryOperations<K, V, R> entryOperations;
-    public transient MapMethods<K, V, R> methods;
     private transient boolean defaultEntryOperationsAndMethods;
-    public transient DefaultValueProvider<K, V> defaultValueProvider;
-    
-    transient ThreadLocal<ContextHolder> cxt;
 
     public VanillaChronicleMap(ChronicleMapBuilder<K, V> builder) throws IOException {
         super(builder);
@@ -115,14 +108,18 @@ public class VanillaChronicleMap<K, V, R>
         initTransients();
     }
 
+    public static long alignAddr(long addr, long alignment) {
+        return (addr + alignment - 1) & ~(alignment - 1L);
+    }
+
     @Override
     protected void readMarshallableFields(@NotNull WireIn wireIn) {
         super.readMarshallableFields(wireIn);
 
         valueClass = wireIn.read(() -> "valueClass").typeLiteral();
-        valueSizeMarshaller = wireIn.read(() -> "valueSizeMarshaller").typedMarshallable();
-        valueReader = wireIn.read(() -> "valueReader").typedMarshallable();
-        valueDataAccess = wireIn.read(() -> "valueDataAccess").typedMarshallable();
+        valueSizeMarshaller = wireIn.read(() -> "valueSizeMarshaller").object(SizeMarshaller.class);
+        valueReader = wireIn.read(() -> "valueReader").object(SizedReader.class);
+        valueDataAccess = wireIn.read(() -> "valueDataAccess").object(DataAccess.class);
 
         constantlySizedEntry = wireIn.read(() -> "constantlySizedEntry").bool();
 
@@ -135,9 +132,9 @@ public class VanillaChronicleMap<K, V, R>
         super.writeMarshallable(wireOut);
 
         wireOut.write(() -> "valueClass").typeLiteral(valueClass);
-        wireOut.write(() -> "valueSizeMarshaller").typedMarshallable(valueSizeMarshaller);
-        wireOut.write(() -> "valueReader").typedMarshallable(valueReader);
-        wireOut.write(() -> "valueDataAccess").typedMarshallable(valueDataAccess);
+        wireOut.write(() -> "valueSizeMarshaller").object(valueSizeMarshaller);
+        wireOut.write(() -> "valueReader").object(valueReader);
+        wireOut.write(() -> "valueDataAccess").object(valueDataAccess);
 
         wireOut.write(() -> "constantlySizedEntry").bool(constantlySizedEntry);
 
@@ -163,10 +160,12 @@ public class VanillaChronicleMap<K, V, R>
         initOwnTransients();
     }
 
-    public void recover(ChronicleHashResources resources) throws IOException {
-        basicRecover(resources);
+    public void recover(
+            ChronicleHashResources resources, ChronicleHashCorruption.Listener corruptionListener,
+            ChronicleHashCorruptionImpl corruption) throws IOException {
+        basicRecover(resources, corruptionListener, corruption);
         try (IterationContext<K, V, ?> iterationContext = iterationContext()) {
-            iterationContext.recoverSegments();
+            iterationContext.recoverSegments(corruptionListener, corruption);
         }
     }
 
@@ -284,7 +283,7 @@ public class VanillaChronicleMap<K, V, R>
                 ", identityHashCode=" + System.identityHashCode(this) +
                 "}";
     }
-    
+
     @Override
     public void clear() {
         forEachEntry(c -> c.context().remove(c));
@@ -297,14 +296,10 @@ public class VanillaChronicleMap<K, V, R>
     }
 
     public void alignReadPosition(Bytes entry) {
-        long positionAddr = entry.address(entry.readPosition());
+        long positionAddr = entry.addressForRead(entry.readPosition());
         long skip = alignAddr(positionAddr, alignment) - positionAddr;
         if (skip > 0)
             entry.readSkip(skip);
-    }
-
-    public static long alignAddr(long addr, long alignment) {
-        return (addr + alignment - 1) & ~(alignment - 1L);
     }
 
     final ChainingInterface q() {
@@ -346,7 +341,7 @@ public class VanillaChronicleMap<K, V, R>
                 // lambda is used instead of constructor reference because currently stage-compiler
                 // has issues with parsing method/constructor refs.
                 // TODO replace with constructor ref when stage-compiler is improved
-                (c, m) -> new CompiledMapQueryContext<K, V, R>(c, m), this);
+                CompiledMapQueryContext::new, this);
     }
 
     final ChainingInterface i() {
@@ -389,7 +384,7 @@ public class VanillaChronicleMap<K, V, R>
                 // lambda is used instead of constructor reference because currently stage-compiler
                 // has issues with parsing method/constructor refs.
                 // TODO replace with constructor ref when stage-compiler is improved
-                (c, m) -> new CompiledMapIterationContext<K, V, R>(c, m), this);
+                CompiledMapIterationContext::new, this);
     }
 
     @Override
@@ -598,7 +593,8 @@ public class VanillaChronicleMap<K, V, R>
         searchLoop:
         while (true) {
             long entryPos;
-            nextPos: {
+            nextPos:
+            {
                 while (true) {
                     long entry = hl.readEntryVolatile(tierBaseAddr, hlPos);
                     if (hl.empty(entry)) {

@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.map.impl.stage.data;
@@ -23,11 +22,15 @@ import net.openhft.chronicle.core.OS;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.BufferOverflowException;
-import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 
 public enum ZeroBytesStore implements BytesStore<ZeroBytesStore, Void> {
     INSTANCE;
+
+    @Override
+    public long addressForWrite(long offset) throws UnsupportedOperationException, BufferOverflowException {
+        throw new UnsupportedOperationException("todo");
+    }
 
     @Override
     public int peekUnsignedByte(long offset) {
@@ -35,22 +38,22 @@ public enum ZeroBytesStore implements BytesStore<ZeroBytesStore, Void> {
     }
 
     @Override
-    public byte readVolatileByte(long offset) throws BufferUnderflowException {
+    public byte readVolatileByte(long offset) {
         return 0;
     }
 
     @Override
-    public short readVolatileShort(long offset) throws BufferUnderflowException {
+    public short readVolatileShort(long offset) {
         return 0;
     }
 
     @Override
-    public int readVolatileInt(long offset) throws BufferUnderflowException {
+    public int readVolatileInt(long offset) {
         return 0;
     }
 
     @Override
-    public long readVolatileLong(long offset) throws BufferUnderflowException {
+    public long readVolatileLong(long offset) {
         return 0;
     }
 
@@ -123,21 +126,30 @@ public enum ZeroBytesStore implements BytesStore<ZeroBytesStore, Void> {
     }
 
     @Override
-    public long address(long offset) throws UnsupportedOperationException {
+    public long addressForRead(long offset) {
         return offset;
     }
 
     @Override
-    public boolean compareAndSwapInt(long offset, int expected, int value)
-            throws BufferOverflowException, IllegalArgumentException {
-        throw new UnsupportedOperationException();
+    public boolean compareAndSwapInt(long offset, int expected, int value) {
+        if (expected != 0 || value != 0)
+            throw new UnsupportedOperationException();
+        return true;
     }
 
     @Override
-    public boolean compareAndSwapLong(long offset, long expected, long value)
-            throws BufferOverflowException, IllegalArgumentException {
-        throw new UnsupportedOperationException();
+    public void testAndSetInt(long offset, int expected, int value) {
+        if (expected != 0 || value != 0)
+            throw new UnsupportedOperationException();
     }
+
+    @Override
+    public boolean compareAndSwapLong(long offset, long expected, long value) {
+        if (expected != 0 || value != 0)
+            throw new UnsupportedOperationException();
+        return true;
+    }
+
 
     @Override
     public void reserve() throws IllegalStateException {
@@ -150,6 +162,11 @@ public enum ZeroBytesStore implements BytesStore<ZeroBytesStore, Void> {
     @Override
     public long refCount() {
         return 0;
+    }
+
+    @Override
+    public boolean tryReserve() {
+        throw new UnsupportedOperationException("todo");
     }
 
     @Override
@@ -231,4 +248,5 @@ public enum ZeroBytesStore implements BytesStore<ZeroBytesStore, Void> {
     public void nativeWrite(long l, long l1, long l2) {
         throw new UnsupportedOperationException();
     }
+
 }

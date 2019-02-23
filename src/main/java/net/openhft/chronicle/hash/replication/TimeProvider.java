@@ -1,28 +1,27 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.hash.replication;
 
 import net.openhft.chronicle.hash.ChronicleHash;
-import net.openhft.chronicle.hash.ChronicleHashBuilder;
 import net.openhft.chronicle.hash.ChronicleHashBuilderPrivateAPI;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongSupplier;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
@@ -38,23 +37,24 @@ import static java.util.concurrent.TimeUnit.NANOSECONDS;
  */
 public final class TimeProvider {
 
-    private TimeProvider() {}
-
     private static final AtomicLong lastTimeHolder = new AtomicLong();
+    private static LongSupplier millisecondSupplier = System::currentTimeMillis;
+    private TimeProvider() {
+    }
 
     /**
      * Returns a non-decreasing number, assumed to be used as a "timestamp".
-     *
+     * <p>
      * <p>Approximate system time interval between two calls of this method is retrievable via
      * {@link #systemTimeIntervalBetween(long, long, TimeUnit)}, applied to the returned values
      * from those {@code currentTime()} calls.
-     *
+     * <p>
      * <p>Safe and scalable for concurrent use from multiple threads.
      *
      * @return the current timestamp
      */
     public static long currentTime() {
-        long now = MILLISECONDS.toNanos(System.currentTimeMillis());
+        long now = MILLISECONDS.toNanos(millisecondSupplier.getAsLong());
         while (true) {
             long lastTime = lastTimeHolder.get();
             if (now <= lastTime)
@@ -68,10 +68,10 @@ public final class TimeProvider {
      * Returns system time interval (i. e. wall time interval) between two time values, taken using
      * {@link #currentTime()} method, with the highest possible precision, in the given time units.
      *
-     * @param earlierTime {@link #currentTime()} result, taken at some moment in the past (earlier)
-     * @param laterTime {@link #currentTime()} result, taken at some moment in the past, but later
-     * than {@code earlierTime} was taken ("later" means there is a happens-before relationship
-     * between the two subject {@code currentTime()} calls)
+     * @param earlierTime            {@link #currentTime()} result, taken at some moment in the past (earlier)
+     * @param laterTime              {@link #currentTime()} result, taken at some moment in the past, but later
+     *                               than {@code earlierTime} was taken ("later" means there is a happens-before relationship
+     *                               between the two subject {@code currentTime()} calls)
      * @param systemTimeIntervalUnit the time units to return system time interval in
      * @return wall time interval between the specified moments in the given time unit
      */
@@ -81,4 +81,7 @@ public final class TimeProvider {
         return systemTimeIntervalUnit.convert(intervalNanos, NANOSECONDS);
     }
 
+    static void overrideMillisecondSupplier(final LongSupplier millisecondSupplier) {
+        TimeProvider.millisecondSupplier = millisecondSupplier;
+    }
 }

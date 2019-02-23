@@ -1,25 +1,22 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.map.impl.stage.entry;
 
 import net.openhft.chronicle.bytes.Bytes;
-import net.openhft.chronicle.bytes.NativeBytesStore;
-import net.openhft.chronicle.bytes.RandomDataInput;
 import net.openhft.chronicle.hash.Data;
 import net.openhft.chronicle.hash.impl.CompactOffHeapLinearHashTable;
 import net.openhft.chronicle.hash.impl.stage.entry.AllocatedChunks;
@@ -40,23 +37,28 @@ import static net.openhft.chronicle.map.VanillaChronicleMap.alignAddr;
 public abstract class MapEntryStages<K, V> extends HashEntryStages<K>
         implements MapEntry<K, V> {
 
-    @StageRef public VanillaChronicleMapHolder<?, ?, ?> mh;
-    @StageRef public AllocatedChunks allocatedChunks;
-    @StageRef KeySearch<K> ks;
+    @StageRef
+    public VanillaChronicleMapHolder<?, ?, ?> mh;
+    @StageRef
+    public AllocatedChunks allocatedChunks;
+    public long valueSizeOffset = -1;
+    @Stage("ValueSize")
+    public long valueSize = -1;
+    @Stage("ValueSize")
+    public long valueOffset;
+    @StageRef
+    public EntryValueBytesData<V> entryValue;
+    @StageRef
+    KeySearch<K> ks;
 
     long countValueSizeOffset() {
         return keyEnd();
     }
-    
-    public long valueSizeOffset = -1;
 
     @SuppressWarnings("unused")
     void initValueSizeOffset() {
         valueSizeOffset = countValueSizeOffset();
     }
-
-    @Stage("ValueSize") public long valueSize = -1;
-    @Stage("ValueSize") public long valueOffset;
 
     void initValueSize(long valueSize) {
         this.valueSize = valueSize;
@@ -64,7 +66,7 @@ public abstract class MapEntryStages<K, V> extends HashEntryStages<K>
         segmentBytes.writePosition(valueSizeOffset);
         mh.m().valueSizeMarshaller.writeSize(segmentBytes, valueSize);
         long currentPosition = segmentBytes.writePosition();
-        long currentAddr = segmentBytes.address(currentPosition);
+        long currentAddr = segmentBytes.addressForRead(currentPosition);
         long skip = alignAddr(currentAddr, mh.m().alignment) - currentAddr;
         if (skip > 0)
             segmentBytes.writeSkip(skip);
@@ -108,8 +110,6 @@ public abstract class MapEntryStages<K, V> extends HashEntryStages<K>
     public long entryEnd() {
         return valueOffset + valueSize;
     }
-    
-    @StageRef public EntryValueBytesData<V> entryValue;
 
     @NotNull
     @Override
@@ -122,7 +122,7 @@ public abstract class MapEntryStages<K, V> extends HashEntryStages<K>
         return valueSizeOffset + mh.m().valueSizeMarshaller.storingLength(newValue.size()) -
                 keySizeOffset;
     }
-    
+
     public void innerDefaultReplaceValue(Data<V> newValue) {
         assert s.innerUpdateLock.isHeldByCurrentThread();
 
@@ -145,7 +145,7 @@ public abstract class MapEntryStages<K, V> extends HashEntryStages<K>
                 if (s.realloc(pos, entrySizeInChunks, newSizeInChunks)) {
                     break newValueDoesNotFit;
                 }
-                relocation(newValue, newSizeOfEverythingBeforeValue);
+                relocation(newValue, newEntrySize);
                 return;
             } else if (newSizeInChunks < entrySizeInChunks) {
                 s.freeExtra(pos, entrySizeInChunks, newSizeInChunks);
@@ -186,15 +186,14 @@ public abstract class MapEntryStages<K, V> extends HashEntryStages<K>
                 newValueOffset + newValue.size() - entryStartOffset;
     }
 
-    protected void relocation(Data<V> newValue, long newSizeOfEverythingBeforeValue) {
-        long entrySize = innerEntrySize(newSizeOfEverythingBeforeValue, newValue.size());
+    protected void relocation(Data<V> newValue, long newEntrySize) {
         // need to copy, because in initEntryAndKeyCopying(), in alloc(), nextTier() called ->
         // hashLookupPos cleared, as a dependant
         long oldHashLookupPos = hlp.hashLookupPos;
         long oldHashLookupAddr = s.tierBaseAddr;
 
         boolean tierHasChanged = allocatedChunks.initEntryAndKeyCopying(
-                entrySize, valueSizeOffset - keySizeOffset, pos, entrySizeInChunks);
+                newEntrySize, valueSizeOffset - keySizeOffset, pos, entrySizeInChunks);
 
         if (tierHasChanged) {
             // implicitly inits key search, locating hashLookupPos on the empty slot
@@ -223,28 +222,23 @@ public abstract class MapEntryStages<K, V> extends HashEntryStages<K>
     }
 
     public long innerEntrySize(long sizeOfEverythingBeforeValue, long valueSize) {
-        long sizeWithoutChecksum;
-        if (mh.m().constantlySizedEntry) {
-            sizeWithoutChecksum =
-                    alignAddr(sizeOfEverythingBeforeValue + valueSize, mh.m().alignment);
-        } else if (mh.m().couldNotDetermineAlignmentBeforeAllocation) {
-            sizeWithoutChecksum = sizeOfEverythingBeforeValue + mh.m().worstAlignment + valueSize;
-        } else {
-            sizeWithoutChecksum =
-                    alignAddr(sizeOfEverythingBeforeValue, mh.m().alignment) + valueSize;
-        }
-        return sizeWithoutChecksum + checksumStrategy.extraEntryBytes();
+        if (!mh.m().constantlySizedEntry && mh.m().couldNotDetermineAlignmentBeforeAllocation)
+            sizeOfEverythingBeforeValue += mh.m().worstAlignment;
+        int alignment = mh.m().alignment;
+        return alignAddr(sizeOfEverythingBeforeValue, alignment) +
+                alignAddr(valueSize, alignment);
     }
 
     long sizeOfEverythingBeforeValue(long keySize, long valueSize) {
         return mh.m().keySizeMarshaller.storingLength(keySize) + keySize +
+                checksumStrategy.extraEntryBytes() +
                 mh.m().valueSizeMarshaller.storingLength(valueSize);
     }
 
     public final void freeExtraAllocatedChunks() {
         // fast path
         if (!mh.m().constantlySizedEntry && mh.m().couldNotDetermineAlignmentBeforeAllocation &&
-                entrySizeInChunks < allocatedChunks.allocatedChunks)  {
+                entrySizeInChunks < allocatedChunks.allocatedChunks) {
             s.freeExtra(pos, allocatedChunks.allocatedChunks, entrySizeInChunks);
         } else {
             initEntrySizeInChunks(allocatedChunks.allocatedChunks);

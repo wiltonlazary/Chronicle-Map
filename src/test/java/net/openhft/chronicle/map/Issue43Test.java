@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.map;
@@ -40,7 +39,7 @@ public class Issue43Test {
                     .valueMarshaller(ArrayMarshaller.INSTANCE)
                     .constantValueSizeBySample(new ValueWrapper(new double[128]))
                     .createPersistedTo(Builder.getPersistenceFile());
-            System.out.println("Created the monkey map ValueWrapper 128");
+            //System.out.println("Created the monkey map ValueWrapper 128");
         } catch (Throwable ex) {
             System.out.println(ex);
         }
@@ -59,13 +58,14 @@ public class Issue43Test {
             EnumMarshallable<ArrayMarshaller> {
         public static final ArrayMarshaller INSTANCE = new ArrayMarshaller();
 
-        private ArrayMarshaller() {}
+        private ArrayMarshaller() {
+        }
 
         @Override
         public void write(Bytes bytes, @NotNull ValueWrapper vw) {
             bytes.writeInt(vw.values.length);
 
-            for (int i = 0; i < vw.values.length; i ++) {
+            for (int i = 0; i < vw.values.length; i++) {
                 bytes.writeDouble(vw.values[i]);
             }
         }

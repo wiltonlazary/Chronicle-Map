@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.hash;
@@ -23,10 +22,10 @@ import org.jetbrains.annotations.NotNull;
 
 /**
  * A context of a <i>present</i> entry in the {@code ChronicleHash}.
- *
+ * <p>
  * <p>This interface is not usable by itself; it merely defines the common base for {@link MapEntry}
  * and {@link SetEntry}.
- * 
+ *
  * @param <K> type of the key in {@code ChronicleHash}
  * @see HashQueryContext#entry()
  */
@@ -35,7 +34,7 @@ public interface HashEntry<K> {
      * Returns the context, in which the entry is accessed.
      */
     HashContext<K> context();
-    
+
     /**
      * Returns the entry key.
      */
@@ -44,9 +43,9 @@ public interface HashEntry<K> {
 
     /**
      * Removes the entry from the {@code ChronicleHash}.
-     * 
+     *
      * @throws IllegalStateException if some locking/state conditions required to perform remove
-     * operation are not met
+     *                               operation are not met
      */
     void doRemove();
 }

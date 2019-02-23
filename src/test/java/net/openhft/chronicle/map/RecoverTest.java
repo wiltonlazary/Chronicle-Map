@@ -1,24 +1,27 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.map;
 
-import net.openhft.chronicle.hash.ChronicleHashBuilder;
+import net.openhft.chronicle.core.values.LongValue;
+import net.openhft.chronicle.hash.ChecksumEntry;
 import net.openhft.chronicle.hash.ChronicleHashBuilderPrivateAPI;
+import net.openhft.chronicle.hash.ChronicleHashCorruption;
+import net.openhft.chronicle.values.Values;
+import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.slf4j.Logger;
@@ -32,8 +35,10 @@ import java.nio.channels.FileChannel;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.junit.Assert.assertNull;
+import static net.openhft.chronicle.map.ChronicleMapTest.getPersistenceFile;
+import static org.junit.Assert.*;
 
 public class RecoverTest {
 
@@ -116,5 +121,48 @@ public class RecoverTest {
                 }
             }
         }
+    }
+
+    @Test
+    public void testCorruptedEntryRecovery() throws IOException {
+        File file = getPersistenceFile();
+        try (ChronicleMap<Integer, LongValue> map = ChronicleMap
+                .of(Integer.class, LongValue.class)
+                .entries(1)
+                .createPersistedTo(file)) {
+
+            LongValue value = Values.newHeapInstance(LongValue.class);
+            value.setValue(42);
+            map.put(1, value);
+
+            try (ExternalMapQueryContext<Integer, LongValue, ?> c = map.queryContext(1)) {
+                // Update lock required for calling ChecksumEntry.checkSum()
+                c.updateLock().lock();
+                MapEntry<Integer, LongValue> entry = c.entry();
+                assertNotNull(entry);
+                ChecksumEntry checksumEntry = (ChecksumEntry) entry;
+                assertTrue(checksumEntry.checkSum());
+
+                // to access off-heap bytes, should call value().getUsing() with Native value
+                // provided. Simple get() return Heap value by default
+                LongValue nativeValue =
+                        entry.value().getUsing(Values.newNativeReference(LongValue.class));
+                // This value bytes update bypass Chronicle Map internals, so checksum is not
+                // updated automatically
+                nativeValue.setValue(43);
+                Assert.assertFalse(checksumEntry.checkSum());
+            }
+        }
+
+        AtomicInteger corruptionCounter = new AtomicInteger(0);
+        ChronicleHashCorruption.Listener corruptionListener =
+                corruption -> corruptionCounter.incrementAndGet();
+        //noinspection EmptyTryBlock
+        try (ChronicleMap<Integer, LongValue> ignore = ChronicleMap
+                .of(Integer.class, LongValue.class)
+                .entries(1)
+                .createOrRecoverPersistedTo(file, true, corruptionListener)) {
+        }
+        assertTrue(corruptionCounter.get() > 0);
     }
 }

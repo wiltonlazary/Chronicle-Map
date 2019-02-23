@@ -1,29 +1,29 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.hash.impl.stage.iter;
 
 import net.openhft.chronicle.bytes.BytesUtil;
+import net.openhft.chronicle.hash.ChronicleHashCorruption;
 import net.openhft.chronicle.hash.ChronicleHashRecoveryFailedException;
 import net.openhft.chronicle.hash.Data;
 import net.openhft.chronicle.hash.impl.CompactOffHeapLinearHashTable;
 import net.openhft.chronicle.hash.impl.VanillaChronicleHash;
 import net.openhft.chronicle.hash.impl.stage.entry.SegmentStages;
-import net.openhft.chronicle.hash.impl.stage.hash.LogHolder;
+import net.openhft.chronicle.map.ChronicleHashCorruptionImpl;
 import net.openhft.chronicle.map.ExternalMapQueryContext;
 import net.openhft.chronicle.map.MapEntry;
 import net.openhft.chronicle.map.VanillaChronicleMap;
@@ -31,21 +31,26 @@ import net.openhft.chronicle.map.impl.VanillaChronicleMapHolder;
 import net.openhft.chronicle.map.impl.stage.entry.MapEntryStages;
 import net.openhft.sg.StageRef;
 import net.openhft.sg.Staged;
-import org.slf4j.Logger;
+
+import static net.openhft.chronicle.map.ChronicleHashCorruptionImpl.*;
 
 @Staged
 public class TierRecovery {
 
-    @StageRef LogHolder lh;
-    @StageRef VanillaChronicleMapHolder<?, ?, ?> mh;
-    @StageRef SegmentStages s;
-    @StageRef MapEntryStages<?, ?> e;
-    @StageRef IterationKeyHashCode khc;
+    @StageRef
+    VanillaChronicleMapHolder<?, ?, ?> mh;
+    @StageRef
+    SegmentStages s;
+    @StageRef
+    MapEntryStages<?, ?> e;
+    @StageRef
+    IterationKeyHashCode khc;
 
-    public int recoverTier(int segmentIndex) {
+    public int recoverTier(
+            int segmentIndex, ChronicleHashCorruption.Listener corruptionListener,
+            ChronicleHashCorruptionImpl corruption) {
         s.freeList.clearAll();
 
-        Logger log = lh.LOG;
         VanillaChronicleHash<?, ?, ?, ?> h = mh.h();
         CompactOffHeapLinearHashTable hl = h.hashLookup;
         long hlAddr = s.tierBaseAddr;
@@ -59,14 +64,17 @@ public class TierRecovery {
                 // (*)
                 hl.clearEntry(hlAddr, hlPos);
                 if (validEntries >= h.maxEntriesPerHashLookup) {
-                    log.error("Too many entries in tier with index {}, max is {}",
-                            s.tierIndex, h.maxEntriesPerHashLookup);
+                    report(corruptionListener, corruption, segmentIndex, () ->
+                            format("Too many entries in tier with index {}, max is {}",
+                                    s.tierIndex, h.maxEntriesPerHashLookup)
+                    );
                     break nextHlPos;
                 }
 
                 long searchKey = hl.key(hlEntry);
                 long entryPos = hl.value(hlEntry);
-                int si = checkEntry(searchKey, entryPos, segmentIndex);
+                int si = checkEntry(searchKey, entryPos, segmentIndex,
+                        corruptionListener, corruption);
                 if (si < 0) {
                     break nextHlPos;
                 } else {
@@ -106,15 +114,18 @@ public class TierRecovery {
                         if (insertPos >= 0 && insertPos < hlPos) {
                             // insertPos already checked
                             e.readExistingEntry(anotherEntryPos);
-                        } else if (checkEntry(searchKey, anotherEntryPos, segmentIndex) < 0) {
+                        } else if (checkEntry(searchKey, anotherEntryPos, segmentIndex,
+                                corruptionListener, corruption) < 0) {
                             break checkDuplicateKeys;
                         }
                         if (e.keySize == currentKeySize &&
                                 BytesUtil.bytesEqual(s.segmentBS, currentKeyOffset,
                                         s.segmentBS, e.keyOffset, currentKeySize)) {
-                            log.error("Entries with duplicate keys within a tier: " +
-                                            "at pos {} and {} with key {}, first value is {}",
-                                    entryPos, anotherEntryPos, e.key(), e.value());
+                            report(corruptionListener, corruption, segmentIndex, () ->
+                                    format("Entries with duplicate keys within a tier: " +
+                                                    "at pos {} and {} with key {}, first value is {}",
+                                            entryPos, anotherEntryPos, e.key(), e.value())
+                            );
                             s.freeList.clearRange(
                                     entryPos, entryPos + currentEntrySizeInChunks);
                             break nextHlPos;
@@ -163,7 +174,9 @@ public class TierRecovery {
         } while (hlPos != 0 || steps == 0);
     }
 
-    public void removeDuplicatesInSegment() {
+    public void removeDuplicatesInSegment(
+            ChronicleHashCorruption.Listener corruptionListener,
+            ChronicleHashCorruptionImpl corruption) {
         long startHlPos = 0L;
         VanillaChronicleMap<?, ?, ?> m = mh.m();
         CompactOffHeapLinearHashTable hashLookup = m.hashLookup;
@@ -181,16 +194,20 @@ public class TierRecovery {
             long entry = hashLookup.readEntry(currentTierBaseAddr, hlPos);
             if (!hashLookup.empty(entry)) {
                 e.readExistingEntry(hashLookup.value(entry));
-                Data key = (Data) e.key();
+                Data key = e.key();
                 try (ExternalMapQueryContext<?, ?, ?> c = m.queryContext(key)) {
                     MapEntry<?, ?> entry2 = c.entry();
                     Data<?> key2 = ((MapEntry) c).key();
-                    if (key2.bytes().address(key2.offset()) != key.bytes().address(key.offset())) {
-                        lh.LOG.error("entries with duplicate key {} in segment {}: " +
-                                "with values {} and {}, removing the latter",
-                                key, c.segmentIndex(),
-                                entry2 != null ? ((MapEntry) c).value() : "<deleted>",
-                                !e.entryDeleted() ? e.value() : "<deleted>");
+                    long keyAddress = key.bytes().addressForRead(key.offset());
+                    long key2Address = key2.bytes().addressForRead(key2.offset());
+                    if (key2Address != keyAddress) {
+                        report(corruptionListener, corruption, s.segmentIndex, () ->
+                                format("entries with duplicate key {} in segment {}: " +
+                                                "with values {} and {}, removing the latter",
+                                        key, c.segmentIndex(),
+                                        entry2 != null ? ((MapEntry) c).value() : "<deleted>",
+                                        !e.entryDeleted() ? e.value() : "<deleted>")
+                        );
                         if (hashLookup.remove(currentTierBaseAddr, hlPos) != hlPos) {
                             hlPos = hashLookup.stepBack(hlPos);
                             steps--;
@@ -206,64 +223,84 @@ public class TierRecovery {
             // entry
         } while (hlPos != startHlPos || steps == 0);
 
-        recoverTierEntriesCounter(entries);
-        recoverLowestPossibleFreeChunkTiered();
+        recoverTierEntriesCounter(entries, corruptionListener, corruption);
+        recoverLowestPossibleFreeChunkTiered(corruptionListener, corruption);
     }
 
-    private void recoverTierEntriesCounter(long entries) {
+    private void recoverTierEntriesCounter(
+            long entries, ChronicleHashCorruption.Listener corruptionListener,
+            ChronicleHashCorruptionImpl corruption) {
         if (s.tierEntries() != entries) {
-            lh.LOG.error("Wrong number of entries counter for tier with index {}, " +
-                    "stored: {}, should be: {}", s.tierIndex, s.tierEntries(), entries);
+            report(corruptionListener, corruption, s.segmentIndex, () ->
+                    format("Wrong number of entries counter for tier with index {}, " +
+                            "stored: {}, should be: {}", s.tierIndex, s.tierEntries(), entries)
+            );
             s.tierEntries(entries);
         }
     }
 
-    private void recoverLowestPossibleFreeChunkTiered() {
+    private void recoverLowestPossibleFreeChunkTiered(
+            ChronicleHashCorruption.Listener corruptionListener,
+            ChronicleHashCorruptionImpl corruption) {
         long lowestFreeChunk = s.freeList.nextClearBit(0);
         if (lowestFreeChunk == -1)
             lowestFreeChunk = mh.m().actualChunksPerSegmentTier;
         if (s.lowestPossiblyFreeChunk() != lowestFreeChunk) {
-            lh.LOG.error("wrong lowest free chunk for tier with index {}, " +
-                    "stored: {}, should be: {}",
-                    s.tierIndex, s.lowestPossiblyFreeChunk(), lowestFreeChunk);
+            long finalLowestFreeChunk = lowestFreeChunk;
+            report(corruptionListener, corruption, s.segmentIndex, () ->
+                    format("wrong lowest free chunk for tier with index {}, " +
+                                    "stored: {}, should be: {}",
+                            s.tierIndex, s.lowestPossiblyFreeChunk(), finalLowestFreeChunk)
+            );
             s.lowestPossiblyFreeChunk(lowestFreeChunk);
         }
     }
 
-    private int checkEntry(long searchKey, long entryPos, int segmentIndex) {
-        Logger log = lh.LOG;
+    private int checkEntry(
+            long searchKey, long entryPos, int segmentIndex,
+            ChronicleHashCorruption.Listener corruptionListener,
+            ChronicleHashCorruptionImpl corruption) {
         VanillaChronicleHash<?, ?, ?, ?> h = mh.h();
         if (entryPos < 0 || entryPos >= h.actualChunksPerSegmentTier) {
-            log.error("Entry pos is out of range: {}, should be 0-{}",
-                    entryPos, h.actualChunksPerSegmentTier - 1);
+            report(corruptionListener, corruption, segmentIndex, () ->
+                    format("Entry pos is out of range: {}, should be 0-{}",
+                            entryPos, h.actualChunksPerSegmentTier - 1)
+            );
             return -1;
         }
         try {
             e.readExistingEntry(entryPos);
         } catch (Exception e) {
-            log.error("Exception while reading entry key size:", e);
+            reportException(corruptionListener, corruption, segmentIndex,
+                    () -> "Exception while reading entry key size", e);
             return -1;
         }
         if (e.keyEnd() > s.segmentBytes.capacity()) {
-            log.error("Wrong key size: {}", e.keySize);
+            report(corruptionListener, corruption, segmentIndex, () ->
+                    format("Wrong key size: {}", e.keySize)
+            );
             return -1;
         }
 
         long keyHashCode = khc.keyHashCode();
         int segmentIndexFromKey = h.hashSplitting.segmentIndex(keyHashCode);
         if (segmentIndexFromKey < 0 || segmentIndexFromKey >= h.actualSegments) {
-            log.error("Segment index from the entry key hash code is out of range: {}, " +
-                    "should be 0-{}, entry key: {}",
-                    segmentIndexFromKey, h.actualSegments - 1, e.key());
+            report(corruptionListener, corruption, segmentIndex, () ->
+                    format("Segment index from the entry key hash code is out of range: {}, " +
+                                    "should be 0-{}, entry key: {}",
+                            segmentIndexFromKey, h.actualSegments - 1, e.key())
+            );
             return -1;
         }
 
         long segmentHashFromKey = h.hashSplitting.segmentHash(keyHashCode);
         long searchKeyFromKey = h.hashLookup.maskUnsetKey(segmentHashFromKey);
         if (searchKey != searchKeyFromKey) {
-            log.error("HashLookup searchKey: {}, HashLookup searchKey " +
-                            "from the entry key hash code: {}, entry key: {}",
-                    searchKey, searchKeyFromKey, e.key());
+            report(corruptionListener, corruption, segmentIndex, () ->
+                    format("HashLookup searchKey: {}, HashLookup searchKey " +
+                                    "from the entry key hash code: {}, entry key: {}, entry pos: {}",
+                            searchKey, searchKeyFromKey, e.key(), entryPos)
+            );
             return -1;
         }
 
@@ -271,26 +308,33 @@ public class TierRecovery {
             // e.entryEnd() implicitly reads the value size, to be computed
             long entryAndChecksumEnd = e.entryEnd() + e.checksumStrategy.extraEntryBytes();
             if (entryAndChecksumEnd > s.segmentBytes.capacity()) {
-                log.error("Wrong value size: {}, key: {}", e.valueSize, e.key());
+                report(corruptionListener, corruption, segmentIndex, () ->
+                        format("Wrong value size: {}, key: {}", e.valueSize, e.key())
+                );
                 return -1;
             }
         } catch (Exception ex) {
-            log.error("Exception while reading entry value size, key: " + e.key(), ex);
+            reportException(corruptionListener, corruption, segmentIndex, () ->
+                    "Exception while reading entry value size, key: " + e.key(), ex);
             return -1;
         }
 
         int storedChecksum = e.checksumStrategy.storedChecksum();
         int checksumFromEntry = e.checksumStrategy.computeChecksum();
         if (storedChecksum != checksumFromEntry) {
-            log.error("Checksum doesn't match, stored: {}, should be from " +
-                            "the entry bytes: {}, key: {}, value: {}",
-                    storedChecksum, checksumFromEntry, e.key(), e.value());
+            report(corruptionListener, corruption, segmentIndex, () ->
+                    format("Checksum doesn't match, stored: {}, should be from " +
+                                    "the entry bytes: {}, key: {}, value: {}",
+                            storedChecksum, checksumFromEntry, e.key(), e.value())
+            );
             return -1;
         }
 
         if (!s.freeList.isRangeClear(entryPos, entryPos + e.entrySizeInChunks)) {
-            log.error("Overlapping entry: positions {}-{}, key: {}, value: {}",
-                    entryPos, entryPos + e.entrySizeInChunks - 1, e.key(), e.value());
+            report(corruptionListener, corruption, segmentIndex, () ->
+                    format("Overlapping entry: positions {}-{}, key: {}, value: {}",
+                            entryPos, entryPos + e.entrySizeInChunks - 1, e.key(), e.value())
+            );
             return -1;
         }
 
@@ -298,9 +342,11 @@ public class TierRecovery {
             return segmentIndexFromKey;
         } else {
             if (segmentIndex != segmentIndexFromKey) {
-                log.error("Expected segment index: {}, segment index from the entry key: {}, " +
-                                "key: {}, value: {}", segmentIndex, searchKeyFromKey, e.key(),
-                        e.value());
+                report(corruptionListener, corruption, segmentIndex, () ->
+                        format("Expected segment index: {}, segment index from the entry key: {}, " +
+                                        "key: {}, value: {}",
+                                segmentIndex, searchKeyFromKey, e.key(), e.value())
+                );
                 return -1;
             } else {
                 return segmentIndex;

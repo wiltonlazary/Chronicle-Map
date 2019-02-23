@@ -1,25 +1,26 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.hash.serialization.impl;
 
 import net.openhft.chronicle.bytes.Byteable;
 import net.openhft.chronicle.bytes.BytesMarshallable;
+import net.openhft.chronicle.bytes.DynamicallySized;
 import net.openhft.chronicle.core.OS;
+import org.jetbrains.annotations.NotNull;
 import net.openhft.chronicle.core.util.ReadResolvable;
 import net.openhft.chronicle.hash.serialization.*;
 import net.openhft.chronicle.values.ValueModel;
@@ -47,7 +48,7 @@ public final class SerializationBuilder<T> implements Cloneable {
         configureByDefault(tClass);
         sizeIsStaticallyKnown = constantSizeMarshaller();
     }
-    
+
     private static boolean concreteClass(Class c) {
         return !c.isInterface() && !Modifier.isAbstract(c.getModifiers());
     }
@@ -93,12 +94,7 @@ public final class SerializationBuilder<T> implements Cloneable {
         if (concreteClass(tClass) && Byteable.class.isAssignableFrom(tClass)) {
             reader(new ByteableSizedReader<>((Class) tClass));
             dataAccess((DataAccess<T>) new ByteableDataAccess<>((Class) tClass));
-            try {
-                long byteableSize = ((Byteable) OS.memory().allocateInstance(tClass)).maxSize();
-                sizeMarshaller(constant(byteableSize));
-            } catch (InstantiationException e) {
-                throw new IllegalStateException(e);
-            }
+            sizeMarshaller(constant(allocateByteable(tClass).maxSize()));
         } else if (tClass == CharSequence.class) {
             reader((SizedReader<T>) CharSequenceSizedReader.INSTANCE);
             dataAccess((DataAccess<T>) new CharSequenceUtf8DataAccess());
@@ -122,7 +118,7 @@ public final class SerializationBuilder<T> implements Cloneable {
             sizeMarshaller(constant(8));
         } else if (tClass == Integer.class) {
             reader((SizedReader<T>) IntegerMarshaller.INSTANCE);
-            dataAccess((DataAccess<T>) new IntegerDataAccess());
+            dataAccess((DataAccess<T>) new IntegerDataAccess_3_13());
             sizeMarshaller(constant(4));
         } else if (tClass == byte[].class) {
             reader((SizedReader<T>) ByteArraySizedReader.INSTANCE);
@@ -139,6 +135,15 @@ public final class SerializationBuilder<T> implements Cloneable {
         } else {
             reader((SizedReader<T>) new SerializableReader<>());
             dataAccess((DataAccess<T>) new SerializableDataAccess<>());
+        }
+    }
+
+    @NotNull
+    private Byteable allocateByteable(Class<T> tClass) {
+        try {
+            return (Byteable) OS.memory().allocateInstance(tClass);
+        } catch (InstantiationException e) {
+            throw new IllegalStateException(e);
         }
     }
 
@@ -186,7 +191,7 @@ public final class SerializationBuilder<T> implements Cloneable {
 
     public long constantSizeBySample(T sampleObject) {
         long constantSize = serializationSize(sampleObject);
-        if (constantSizeMarshaller()) {
+        if (constantSizeMarshaller() && !DynamicallySized.class.isAssignableFrom(sampleObject.getClass())) {
             long expectedConstantSize = constantSize();
             if (constantSize != expectedConstantSize) {
                 throw new IllegalStateException("Although configuring constant size by sample " +

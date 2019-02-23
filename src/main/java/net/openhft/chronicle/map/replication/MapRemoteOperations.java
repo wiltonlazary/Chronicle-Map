@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.map.replication;
@@ -20,7 +19,9 @@ package net.openhft.chronicle.map.replication;
 import net.openhft.chronicle.hash.Data;
 import net.openhft.chronicle.hash.replication.DefaultEventualConsistencyStrategy;
 import net.openhft.chronicle.hash.replication.ReplicableEntry;
-import net.openhft.chronicle.map.*;
+import net.openhft.chronicle.map.ChronicleMap;
+import net.openhft.chronicle.map.MapAbsentEntry;
+import net.openhft.chronicle.map.MapEntryOperations;
 
 import static net.openhft.chronicle.hash.replication.DefaultEventualConsistencyStrategy.AcceptanceDecision.ACCEPT;
 import static net.openhft.chronicle.hash.replication.DefaultEventualConsistencyStrategy.AcceptanceDecision.DISCARD;
@@ -28,7 +29,7 @@ import static net.openhft.chronicle.hash.replication.DefaultEventualConsistencyS
 
 /**
  * SPI strategy of performing remote calls and apply replication events for {@link ChronicleMap}.
- *
+ * <p>
  * <p>Example: Grow-only set values CRDT: <pre><code>
  * class GrowOnlySetValuedMapEntryOperations&lt;K, E&gt;
  *         implements MapEntryOperations&lt;K, Set&lt;E&gt;, Void&gt; {
@@ -38,7 +39,7 @@ import static net.openhft.chronicle.hash.replication.DefaultEventualConsistencyS
  *                 "doesn't support map value removals");
  *     }
  * }
- *
+ * <p>
  * class GrowOnlySetValuedMapRemoteOperations&lt;K, E&gt;
  *         implements MapRemoteOperations&lt;K, Set&lt;E&gt;, Void&gt; {
  *     &#064;Override
@@ -54,7 +55,7 @@ import static net.openhft.chronicle.hash.replication.DefaultEventualConsistencyS
  *             q.entry().updateOrigin(q.remoteIdentifier(), q.remoteTimestamp());
  *         }
  *     }
- *
+ * <p>
  *     &#064;Override
  *     public void remove(MapRemoteQueryContext&lt;K, Set&lt;E&gt;, Void&gt; q) {
  *         throw new UnsupportedOperationException();
@@ -65,7 +66,7 @@ import static net.openhft.chronicle.hash.replication.DefaultEventualConsistencyS
  * @param <V> the map value type
  * @param <R> the return type of {@link MapEntryOperations} specified fro the queried map
  * @see DefaultEventualConsistencyStrategy
- * @see ChronicleMapBuilderPrivateAPI#remoteOperations(MapRemoteOperations)
+ * @see net.openhft.chronicle.map.ChronicleMapBuilderPrivateAPI#remoteOperations(MapRemoteOperations)
  */
 public interface MapRemoteOperations<K, V, R> {
 
@@ -133,7 +134,7 @@ public interface MapRemoteOperations<K, V, R> {
      * key ({@code q.queriedKey()}) was changed on some remote {@code ChronicleMap} node, with the
      * given {@code newValue}.
      *
-     * @param q the remote operation context
+     * @param q        the remote operation context
      * @param newValue the new value to put
      */
     default void put(MapRemoteQueryContext<K, V, R> q, Data<V> newValue) {

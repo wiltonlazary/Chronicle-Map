@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.hash.serialization;
@@ -32,7 +31,7 @@ import net.openhft.chronicle.wire.Marshallable;
  * works). Also, this interface allows to generalize storing constantly-sized and variable-sized
  * blocks of data. Constantly-sized don't require to store the size actually, the corresponding
  * {@link #constant} {@code SizeMarshaller} consumes 0 bytes.
- *
+ * <p>
  * <p>Some {@code SizeMarshaller} implementations couldn't store the whole {@code long} range, for
  * example each {@link #constant} {@code SizeMarshaller} is able to "store" only a single specific
  * value (it's constant size). If the marshaller is fed with the size it is not able store, it could
@@ -76,7 +75,7 @@ public interface SizeMarshaller extends Marshallable {
      * @param size the size to store
      * @return the number of bytes would be taken to store the given size
      * @throws IllegalArgumentException might be thrown, if the given size if not storable by this
-     * {@code SizeMarshaller}
+     *                                  {@code SizeMarshaller}
      */
     int storingLength(long size);
 
@@ -119,10 +118,10 @@ public interface SizeMarshaller extends Marshallable {
     /**
      * Writes the given size into the streaming output.
      *
-     * @param out the {@code StreamingDataOutput} to write the size to
+     * @param out         the {@code StreamingDataOutput} to write the size to
      * @param sizeToWrite the size to write
      * @throws IllegalArgumentException might be thrown, if the given size if not storable by this
-     * {@code SizeMarshaller}
+     *                                  {@code SizeMarshaller}
      * @see #readSize(Bytes)
      */
     void writeSize(Bytes out, long sizeToWrite);

@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.map;
@@ -87,62 +86,10 @@ public class CHMTest5 {
         // as we used CAS to update and it's read-only after that
         // but we need to lock access to the Time array
         long[] times1 = new long[NUMBER_OF_PROCESSES_ALLOWED];
-        boolean locked = false;
-        for (int i = 0; i < 1000000; i++) {
-            //try up to 1 second
-            if (data.tryLockNanosEntry(1000L)) {
-                locked = true;
-                break;
-            }
-        }
-        if (!locked) {
-            System.out.println("Unable to acquire a lock on the time array - exiting");
-            System.exit(0);
-        }
-        try {
-            //we've got the lock, now copy the array
-            for (int i = 0; i < times1.length; i++) {
-                times1[i] = data.getTimeAt(i);
-            }
-        } finally {
-            //and release the lock
-            try {
-                data.unlockEntry();
-            } catch (IllegalMonitorStateException e) {
-                //odd, but we'll be unlocked either way
-                System.out.println("Unexpected state: " + e);
-                e.printStackTrace();
-            }
-        }
+        getTimes(data, times1);
         pause(300L);
         long[] times2 = new long[NUMBER_OF_PROCESSES_ALLOWED];
-        locked = false;
-        for (int i = 0; i < 1000000; i++) {
-            //try up to 1 second
-            if (data.tryLockNanosEntry(1000L)) {
-                locked = true;
-                break;
-            }
-        }
-        if (!locked) {
-            System.out.println("Unable to acquire a lock on the time array - exiting");
-            System.exit(0);
-        }
-        try {
-            //we've got the lock, now copy the array
-            for (int i = 0; i < times2.length; i++) {
-                times2[i] = data.getTimeAt(i);
-            }
-        } finally {
-            //and release the lock
-            try {
-                data.unlockEntry();
-            } catch (IllegalMonitorStateException e) {
-                //odd, but we'll be unlocked either way
-                System.out.println("Unexpected state: " + e);
-                e.printStackTrace();
-            }
-        }
+        getTimes(data, times2);
         //look for a slot that hasn't changed in that 300ms pause
         int slotindex = 0;
         long lastUpdateTime = -1;
@@ -151,29 +98,12 @@ public class CHMTest5 {
                 //we have an index which has not been updated by anything else
                 //in the 300ms pause, so we have a spare slot - we use this slot
                 long timenow = System.currentTimeMillis();
-                locked = false;
-                for (int i = 0; i < 1000000; i++) {
-                    //try up to 1 second
-                    if (data.tryLockNanosEntry(1000L)) {
-                        locked = true;
-                        break;
-                    }
-                }
-                if (!locked) {
-                    System.out.println("Unable to acquire a lock on the time array - exiting");
-                    System.exit(0);
-                }
+                tryLock1Sec(data);
                 try {
                     data.setTimeAt(slotindex, timenow);
                 } finally {
                     //and release the lock
-                    try {
-                        data.unlockEntry();
-                    } catch (IllegalMonitorStateException e) {
-                        //odd, but we'll be unlocked either way
-                        System.out.println("Unexpected state: " + e);
-                        e.printStackTrace();
-                    }
+                    releaseLock(data);
                 }
 
                 //Now we have successfully acquired a slot
@@ -192,18 +122,7 @@ public class CHMTest5 {
         for (int count = 0; count < 600; count++) {
             pause(100L);
             long timenow = System.currentTimeMillis();
-            locked = false;
-            for (int i = 0; i < 1000000; i++) {
-                //try up to 1 second
-                if (data.tryLockNanosEntry(1000L)) {
-                    locked = true;
-                    break;
-                }
-            }
-            if (!locked) {
-                System.out.println("Unable to acquire a lock on the time array - exiting");
-                System.exit(0);
-            }
+            tryLock1Sec(data);
             try {
                 if (lastUpdateTime == data.getTimeAt(slotindex)) {
                     //That's what we expect so just update the slot
@@ -216,17 +135,49 @@ public class CHMTest5 {
                     System.exit(0);
                 }
             } finally {
-                //and release the lock
-                try {
-                    data.unlockEntry();
-                } catch (IllegalMonitorStateException e) {
-                    //odd, but we'll be unlocked either way
-                    System.out.println("Unexpected state: " + e);
-                    e.printStackTrace();
-                }
+                releaseLock(data);
             }
         }
         System.out.println("Exiting slot " + slotindex + " after completing the full test.");
+    }
+
+    private static void releaseLock(CHMTest5Data data) {
+        //and release the lock
+        try {
+            data.unlockEntry();
+        } catch (IllegalMonitorStateException e) {
+            //odd, but we'll be unlocked either way
+            System.out.println("Unexpected state: " + e);
+            e.printStackTrace();
+        }
+    }
+
+    private static void tryLock1Sec(CHMTest5Data data) {
+        boolean locked = false;
+        for (int i = 0; i < 1000000; i++) {
+            //try up to 1 second
+            if (data.tryLockNanosEntry(1000L)) {
+                locked = true;
+                break;
+            }
+        }
+        if (!locked) {
+            System.out.println("Unable to acquire a lock on the time array - exiting");
+            System.exit(0);
+        }
+    }
+
+    private static void getTimes(CHMTest5Data data, long[] times1) {
+        tryLock1Sec(data);
+        try {
+            //we've got the lock, now copy the array
+            for (int i = 0; i < times1.length; i++) {
+                times1[i] = data.getTimeAt(i);
+            }
+        } finally {
+            //and release the lock
+            releaseLock(data);
+        }
     }
 
     public static void pause(long pause) {
@@ -237,26 +188,30 @@ public class CHMTest5 {
 
         @Group(0)
         long getEntryLockState();
+
         void setEntryLockState(long entryLockState);
 
         @Group(1)
         int getMaxNumberOfProcessesAllowed();
+
         void setMaxNumberOfProcessesAllowed(int max);
+
         boolean compareAndSwapMaxNumberOfProcessesAllowed(int expected, int value);
 
         @Group(1)
         @Array(length = 4)
         void setTimeAt(int index, long time);
+
         long getTimeAt(int index);
 
         @Deprecated()
         default boolean tryLockNanosEntry(long nanos) {
             return AcquisitionStrategies
                     .<ReadWriteLockingStrategy>spinLoop(nanos, TimeUnit.NANOSECONDS).acquire(
-                    TryAcquireOperations.writeLock(),
-                    VanillaReadWriteWithWaitsLockingStrategy.instance(),
-                    checkedBytesStoreAccess(), ((Byteable) this).bytesStore(),
-                    ((Byteable) this).offset());
+                            TryAcquireOperations.writeLock(),
+                            VanillaReadWriteWithWaitsLockingStrategy.instance(),
+                            checkedBytesStoreAccess(), ((Byteable) this).bytesStore(),
+                            ((Byteable) this).offset());
         }
 
         @Deprecated()

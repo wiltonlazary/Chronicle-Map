@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.hash.impl.stage.query;
@@ -35,21 +34,29 @@ import static net.openhft.chronicle.hash.impl.stage.query.KeySearch.SearchState.
 @Staged
 public abstract class HashQuery<K> implements SetEntry<K> {
 
-    @StageRef public VanillaChronicleHashHolder<K> hh;
-    @StageRef public SegmentStages s;
-    @StageRef public HashEntryStages<K> entry;
-    @StageRef public HashLookupSearch hashLookupSearch;
-    @StageRef public CheckOnEachPublicOperation checkOnEachPublicOperation;
-    @StageRef public HashLookupPos hlp;
-    @StageRef public KeySearch<K> ks;
-
+    @StageRef
+    public VanillaChronicleHashHolder<K> hh;
     final DataAccess<K> innerInputKeyDataAccess = hh.h().keyDataAccess.copy();
-
+    @StageRef
+    public SegmentStages s;
+    @StageRef
+    public HashEntryStages<K> entry;
+    @StageRef
+    public HashLookupSearch hashLookupSearch;
+    @StageRef
+    public CheckOnEachPublicOperation checkOnEachPublicOperation;
+    @StageRef
+    public HashLookupPos hlp;
+    @StageRef
+    public KeySearch<K> ks;
     /**
      * This stage exists for hooking {@link #innerInputKeyDataAccess} usage, to trigger {@link
      * DataAccess#uninit()} on context exit
      */
-    @Stage("InputKeyDataAccess") private boolean inputKeyDataAccessInitialized = false;
+    @Stage("InputKeyDataAccess")
+    private boolean inputKeyDataAccessInitialized = false;
+    @Stage("PresenceOfEntry")
+    private EntryPresence entryPresence = null;
 
     void initInputKeyDataAccess() {
         inputKeyDataAccessInitialized = true;
@@ -64,7 +71,7 @@ public abstract class HashQuery<K> implements SetEntry<K> {
         initInputKeyDataAccess();
         return innerInputKeyDataAccess;
     }
-    
+
     public void dropSearchIfNestedContextsAndPresentHashLookupSlotCheckFailed() {
         if (s.locksInit()) {
             if (s.nestedContextsLockedOnSameSegment &&
@@ -82,10 +89,6 @@ public abstract class HashQuery<K> implements SetEntry<K> {
         checkOnEachPublicOperation.checkOnEachPublicOperation();
         return ks.inputKey;
     }
-
-    public enum EntryPresence {PRESENT, ABSENT}
-
-    @Stage("PresenceOfEntry") private EntryPresence entryPresence = null;
 
     private void initPresenceOfEntry() {
         if (ks.searchStatePresent() || tieredEntryPresent()) {
@@ -141,4 +144,6 @@ public abstract class HashQuery<K> implements SetEntry<K> {
                     hh.h().toIdentityString() + ": Entry is absent when doRemove() is called");
         }
     }
+
+    public enum EntryPresence {PRESENT, ABSENT}
 }

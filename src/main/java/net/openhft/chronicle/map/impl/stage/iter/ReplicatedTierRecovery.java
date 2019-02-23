@@ -1,50 +1,59 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.map.impl.stage.iter;
 
 import net.openhft.chronicle.algo.bitset.ReusableBitSet;
+import net.openhft.chronicle.hash.ChronicleHashCorruption;
 import net.openhft.chronicle.hash.impl.CompactOffHeapLinearHashTable;
 import net.openhft.chronicle.hash.impl.VanillaChronicleHash;
 import net.openhft.chronicle.hash.impl.stage.entry.SegmentStages;
-import net.openhft.chronicle.hash.impl.stage.hash.LogHolder;
 import net.openhft.chronicle.hash.impl.stage.iter.TierRecovery;
+import net.openhft.chronicle.map.ChronicleHashCorruptionImpl;
 import net.openhft.chronicle.map.ReplicatedChronicleMap;
 import net.openhft.chronicle.map.impl.ReplicatedChronicleMapHolder;
 import net.openhft.chronicle.map.impl.stage.entry.ReplicatedMapEntryStages;
 import net.openhft.sg.StageRef;
 import net.openhft.sg.Staged;
 
+import static net.openhft.chronicle.map.ChronicleHashCorruptionImpl.format;
+import static net.openhft.chronicle.map.ChronicleHashCorruptionImpl.report;
+
 @Staged
 public class ReplicatedTierRecovery extends TierRecovery {
 
-    @StageRef ReplicatedChronicleMapHolder<?, ?, ?> rh;
-    @StageRef SegmentStages s;
-    @StageRef ReplicatedMapEntryStages<?, ?> e;
-    @StageRef LogHolder lh;
+    @StageRef
+    ReplicatedChronicleMapHolder<?, ?, ?> rh;
+    @StageRef
+    SegmentStages s;
+    @StageRef
+    ReplicatedMapEntryStages<?, ?> e;
 
     @Override
-    public void removeDuplicatesInSegment() {
-        super.removeDuplicatesInSegment();
-        recoverTierDeleted();
+    public void removeDuplicatesInSegment(
+            ChronicleHashCorruption.Listener corruptionListener,
+            ChronicleHashCorruptionImpl corruption) {
+        super.removeDuplicatesInSegment(corruptionListener, corruption);
+        recoverTierDeleted(corruptionListener, corruption);
         cleanupModificationIterationBits();
     }
 
-    private void recoverTierDeleted() {
+    private void recoverTierDeleted(
+            ChronicleHashCorruption.Listener corruptionListener,
+            ChronicleHashCorruptionImpl corruption) {
         VanillaChronicleHash<?, ?, ?, ?> h = rh.h();
         CompactOffHeapLinearHashTable hl = h.hashLookup;
         long hlAddr = s.tierBaseAddr;
@@ -62,8 +71,11 @@ public class ReplicatedTierRecovery extends TierRecovery {
             hlPos = hl.step(hlPos);
         } while (hlPos != 0);
         if (s.tierDeleted() != deleted) {
-            lh.LOG.error("wrong deleted counter for tier with index {}, stored: {}, should be: {}",
-                    s.tierIndex, s.tierDeleted(), deleted);
+            long finalDeleted = deleted;
+            report(corruptionListener, corruption, s.segmentIndex, () ->
+                    format("wrong deleted counter for tier with index {}, stored: {}, should be: {}",
+                            s.tierIndex, s.tierDeleted(), finalDeleted)
+            );
             s.tierDeleted(deleted);
         }
     }
@@ -73,7 +85,7 @@ public class ReplicatedTierRecovery extends TierRecovery {
         ReplicatedChronicleMap<?, ?, ?>.ModificationIterator[] its =
                 m.acquireAllModificationIterators();
         ReusableBitSet freeList = s.freeList;
-        for (long pos = 0; pos < m.actualChunksPerSegmentTier;) {
+        for (long pos = 0; pos < m.actualChunksPerSegmentTier; ) {
             long nextPos = freeList.nextSetBit(pos);
             if (nextPos > pos) {
                 for (ReplicatedChronicleMap<?, ?, ?>.ModificationIterator it : its) {

@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.map;
@@ -31,51 +30,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 public class NestedContextsTest {
-
-    @Test
-    public void nestedContextsTest() throws ExecutionException, InterruptedException {
-        HashSet<Integer> averageValue = new HashSet<>();
-        for (int i = 0; i < 5; i++) {
-            averageValue.add(i);
-        }
-        ChronicleMap<Integer, Set<Integer>> graph = ChronicleMap
-                .of(Integer.class, (Class<Set<Integer>>) (Class) Set.class)
-                .entries(10)
-                .averageValue(averageValue)
-                .actualSegments(2)
-                .create();
-
-        addEdge(graph, 1, 2);
-        addEdge(graph, 2, 3);
-        addEdge(graph, 1, 3);
-
-        assertEquals(ImmutableSet.of(2, 3), graph.get(1));
-        assertEquals(ImmutableSet.of(1, 3), graph.get(2));
-        assertEquals(ImmutableSet.of(1, 2), graph.get(3));
-
-        verifyGraphConsistent(graph);
-
-        ForkJoinPool pool = new ForkJoinPool(8);
-        try {
-            pool.submit(() -> {
-                ThreadLocalRandom.current().ints().limit(10_000).parallel().forEach(i -> {
-                    int sourceNode = Math.abs(i % 10);
-                    int targetNode;
-                    do {
-                        targetNode = ThreadLocalRandom.current().nextInt(10);
-                    } while (targetNode == sourceNode);
-                    if (i % 2 == 0) {
-                        addEdge(graph, sourceNode, targetNode);
-                    } else {
-                        removeEdge(graph, sourceNode, targetNode);
-                    }
-                });
-            }).get();
-            verifyGraphConsistent(graph);
-        } finally {
-            pool.shutdownNow();
-        }
-    }
 
     private static void verifyGraphConsistent(ChronicleMap<Integer, Set<Integer>> graph) {
         graph.forEach((node, neighbours) ->
@@ -156,7 +110,7 @@ public class NestedContextsTest {
     }
 
     private static void addEdgeBothAbsent(MapQueryContext<Integer, Set<Integer>, ?> sc, int source,
-            MapQueryContext<Integer, Set<Integer>, ?> tc, int target) {
+                                          MapQueryContext<Integer, Set<Integer>, ?> tc, int target) {
         addEdgeOneSide(sc, target);
         addEdgeOneSide(tc, source);
     }
@@ -205,6 +159,51 @@ public class NestedContextsTest {
                 tEntry.doReplaceValue(tc.wrapValueAsData(tNeighbours));
                 return true;
             }
+        }
+    }
+
+    @Test
+    public void nestedContextsTest() throws ExecutionException, InterruptedException {
+        HashSet<Integer> averageValue = new HashSet<>();
+        for (int i = 0; i < 5; i++) {
+            averageValue.add(i);
+        }
+        ChronicleMap<Integer, Set<Integer>> graph = ChronicleMap
+                .of(Integer.class, (Class<Set<Integer>>) (Class) Set.class)
+                .entries(10)
+                .averageValue(averageValue)
+                .actualSegments(2)
+                .create();
+
+        addEdge(graph, 1, 2);
+        addEdge(graph, 2, 3);
+        addEdge(graph, 1, 3);
+
+        assertEquals(ImmutableSet.of(2, 3), graph.get(1));
+        assertEquals(ImmutableSet.of(1, 3), graph.get(2));
+        assertEquals(ImmutableSet.of(1, 2), graph.get(3));
+
+        verifyGraphConsistent(graph);
+
+        ForkJoinPool pool = new ForkJoinPool(8);
+        try {
+            pool.submit(() -> {
+                ThreadLocalRandom.current().ints().limit(10_000).parallel().forEach(i -> {
+                    int sourceNode = Math.abs(i % 10);
+                    int targetNode;
+                    do {
+                        targetNode = ThreadLocalRandom.current().nextInt(10);
+                    } while (targetNode == sourceNode);
+                    if (i % 2 == 0) {
+                        addEdge(graph, sourceNode, targetNode);
+                    } else {
+                        removeEdge(graph, sourceNode, targetNode);
+                    }
+                });
+            }).get();
+            verifyGraphConsistent(graph);
+        } finally {
+            pool.shutdownNow();
         }
     }
 }

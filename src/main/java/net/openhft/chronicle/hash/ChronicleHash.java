@@ -1,30 +1,29 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.hash;
 
 import net.openhft.chronicle.bytes.BytesStore;
+import net.openhft.chronicle.core.io.Closeable;
 import net.openhft.chronicle.map.ChronicleMap;
 import net.openhft.chronicle.map.MapMethods;
 import net.openhft.chronicle.map.MapQueryContext;
 import net.openhft.chronicle.set.ChronicleSet;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.Closeable;
 import java.io.File;
 import java.util.Map;
 import java.util.Set;
@@ -42,7 +41,7 @@ public interface ChronicleHash<K, E extends HashEntry<K>, SC extends HashSegment
      * i. e. if it is created by {@link ChronicleHashBuilder#create()} call.
      *
      * @return the file this {@link ChronicleMap} or {@link ChronicleSet} is mapped to,
-     *         or {@code null} if it is not mapped to any file
+     * or {@code null} if it is not mapped to any file
      * @see ChronicleHashBuilder#createPersistedTo(File)
      */
     File file();
@@ -62,7 +61,7 @@ public interface ChronicleHash<K, E extends HashEntry<K>, SC extends HashSegment
      * Map#toString()} and {@link Set#toString()} contracts respectively, making it not always
      * useful (or even impossible to use, if this {@code ChronicleHash} contains a lot of entries)
      * for the purposes listed above.
-     *
+     * <p>
      * <p>This method return a string of the form:<br><br>
      * [ChronicleMap|ChronicleSet]{name={@link #name()}, file={@link #file()},
      * identityHashCode={@link System#identityHashCode System.identityHashCode(thisChronicleHash)}}
@@ -85,7 +84,7 @@ public interface ChronicleHash<K, E extends HashEntry<K>, SC extends HashSegment
     /**
      * Returns the amount of off-heap memory (in bytes), allocated by this {@code ChronicleHash} or
      * shared with with other ChronicleHashes, persisting to the same {@link #file()}.
-     *
+     * <p>
      * <p>After {@link #close()} this method returns 0.
      *
      * @return the amount of off-heap memory, used by this {@code ChronicleHash} (in bytes)
@@ -103,7 +102,7 @@ public interface ChronicleHash<K, E extends HashEntry<K>, SC extends HashSegment
      * try (ExternalHashQueryContext<K> q = hash.queryContext(key)) {
      *     // ... do something
      * }}</pre>
-     *
+     * <p>
      * <p>See documentation to {@link HashQueryContext} interface and methods in {@link MapMethods}
      * interface for examples of using contexts. Also see <a href="
      * https://github.com/OpenHFT/Chronicle-Map#working-with-an-entry-within-a-context-section">
@@ -125,7 +124,7 @@ public interface ChronicleHash<K, E extends HashEntry<K>, SC extends HashSegment
      * instead of object key. This method is useful, when you already have {@code Data}, calling
      * this method instead of {@link #queryContext(Object)} might help to avoid unnecessary
      * deserialization.
-     *
+     * <p>
      * <p>See documentation to {@link HashQueryContext} interface and methods in {@link MapMethods}
      * interface for examples of using contexts. Also see <a href="
      * https://github.com/OpenHFT/Chronicle-Map#working-with-an-entry-within-a-context-section">
@@ -134,7 +133,8 @@ public interface ChronicleHash<K, E extends HashEntry<K>, SC extends HashSegment
      * @param key the queried key as {@code Data}
      * @return the context to perform operations with the key
      */
-    @NotNull EQC queryContext(Data<K> key);
+    @NotNull
+    EQC queryContext(Data<K> key);
 
     /**
      * Returns a context to perform arbitrary operations with the given key, provided in the
@@ -142,11 +142,12 @@ public interface ChronicleHash<K, E extends HashEntry<K>, SC extends HashSegment
      * information on contexts semantics and usage patterns.
      *
      * @param keyBytes the bytes store with the key bytes to query
-     * @param offset actual offset of the key bytes within the given BytesStore
-     * @param size length of the key bytes sequence within the given BytesStore
+     * @param offset   actual offset of the key bytes within the given BytesStore
+     * @param size     length of the key bytes sequence within the given BytesStore
      * @return the context to perform operations with the key
      */
-    @NotNull EQC queryContext(BytesStore keyBytes, long offset, long size);
+    @NotNull
+    EQC queryContext(BytesStore keyBytes, long offset, long size);
 
     /**
      * Returns a context of the segment with the given index. Segments are indexed from 0 to
@@ -168,11 +169,11 @@ public interface ChronicleHash<K, E extends HashEntry<K>, SC extends HashSegment
      * Checks the given predicate on each entry in this {@code ChronicleHash} until all entries
      * have been processed or the predicate returns {@code false} for some entry, or throws
      * an {@code Exception}. Exceptions thrown by the predicate are relayed to the caller.
-     *
+     * <p>
      * <p>The order in which the entries will be processed is unspecified. It might differ from
      * the order of iteration via {@code Iterator} returned by any method of this
      * {@code ChronicleHash} or it's collection view.
-     *
+     * <p>
      * <p>If the {@code ChronicleHash} is empty, this method returns {@code true} immediately.
      *
      * @param predicate the predicate to be checked for each entry
@@ -185,7 +186,7 @@ public interface ChronicleHash<K, E extends HashEntry<K>, SC extends HashSegment
      * Performs the given action for each entry in this {@code ChronicleHash} until all entries have
      * been processed or the action throws an {@code Exception}. Exceptions thrown by the action are
      * relayed to the caller.
-     *
+     * <p>
      * <p>The order in which the entries will be processed is unspecified. It might differ from
      * the order of iteration via {@code Iterator} returned by any method of this
      * {@code ChronicleHash} or it's collection view.
@@ -200,11 +201,11 @@ public interface ChronicleHash<K, E extends HashEntry<K>, SC extends HashSegment
      * and there are other instances mapping the same data on the server across JVMs, the memory
      * won't be actually freed on operating system level. I. e. this method call doesn't affect
      * other {@link ChronicleMap} or {@link ChronicleSet} instances mapping the same data.
-     *
+     * <p>
      * <p>If you won't call this method, memory would be held at least until next garbage
      * collection. This could be a problem if, for example, you target rare garbage collections,
      * but load and drop {@code ChronicleHash}es regularly.
-     *
+     * <p>
      * <p>After this method call, all methods, querying the {@code ChronicleHash}'s entries, {@link
      * #longSize()} and {@code size()}), throw {@link ChronicleHashClosedException}. {@link
      * #isOpen()} returns {@code false}, {@code close()} itself returns immediately without effects

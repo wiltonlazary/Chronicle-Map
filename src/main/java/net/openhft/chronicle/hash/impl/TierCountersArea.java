@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.hash.impl;
@@ -29,9 +28,6 @@ import net.openhft.chronicle.core.OS;
 public enum TierCountersArea {
     ;
 
-    private static Memory memory = OS.memory();
-    private static final long UNSIGNED_INT_MASK = 0xFFFFFFFFL;
-
     public static final long NEXT_TIER_INDEX_OFFSET = 0L;
     public static final long PREV_TIER_INDEX_OFFSET = NEXT_TIER_INDEX_OFFSET + 8L;
     public static final long LOWEST_POSSIBLY_FREE_CHUNK_TIERED_OFFSET = PREV_TIER_INDEX_OFFSET + 8L;
@@ -39,6 +35,8 @@ public enum TierCountersArea {
     public static final long TIER_OFFSET = SEGMENT_INDEX_OFFSET + 4L;
     public static final long ENTRIES_OFFSET = TIER_OFFSET + 4L;
     public static final long DELETED_OFFSET = ENTRIES_OFFSET + 4L;
+    private static final long UNSIGNED_INT_MASK = 0xFFFFFFFFL;
+    private static Memory memory = OS.memory();
 
     public static long nextTierIndex(long address) {
         return memory.readLong(address + NEXT_TIER_INDEX_OFFSET);

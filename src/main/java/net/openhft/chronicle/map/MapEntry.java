@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.map;
@@ -23,15 +22,16 @@ import org.jetbrains.annotations.NotNull;
 
 /**
  * A context of a <i>present</i> entry in the {@link ChronicleMap}.
- * 
+ *
  * @param <K> the map key type
  * @param <V> the map value type
  * @see MapEntryOperations
- * @see MapQueryContext#entry() 
+ * @see MapQueryContext#entry()
  */
 public interface MapEntry<K, V> extends HashEntry<K> {
     @Override
-    @NotNull MapContext<K, V, ?> context();
+    @NotNull
+    MapContext<K, V, ?> context();
 
     /**
      * Returns the entry value.
@@ -41,22 +41,22 @@ public interface MapEntry<K, V> extends HashEntry<K> {
 
     /**
      * Replaces the entry's value with the given {@code newValue}.
-     * 
+     * <p>
      * <p>This method is the default implementation for {@link MapEntryOperations#replaceValue(
-     * MapEntry, Data)}, which might be customized over the default.
+     *MapEntry, Data)}, which might be customized over the default.
      *
      * @param newValue the value to be put into the map instead of the {@linkplain #value() current
-     * value}
+     *                 value}
      * @throws IllegalStateException if some locking/state conditions required to perform replace
-     * operation are not met
+     *                               operation are not met
      */
     void doReplaceValue(Data<V> newValue);
 
     /**
      * Removes the entry from the map.
-     * 
+     * <p>
      * <p>This method is the default implementation for {@link MapEntryOperations#remove(MapEntry)},
-     * which might be customized over the default. 
+     * which might be customized over the default.
      */
     @Override
     void doRemove();

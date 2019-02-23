@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.hash.impl;
@@ -22,6 +21,7 @@ import net.openhft.chronicle.algo.bytes.NativeAccess;
 import net.openhft.chronicle.algo.locks.VanillaReadWriteUpdateWithWaitsLockingStrategy;
 import net.openhft.chronicle.core.Jvm;
 import net.openhft.chronicle.core.OS;
+import net.openhft.chronicle.core.threads.ThreadHints;
 import net.openhft.chronicle.hash.locks.InterProcessDeadLockException;
 
 import java.util.concurrent.TimeUnit;
@@ -31,65 +31,321 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 
 public final class BigSegmentHeader implements SegmentHeader {
     public static final BigSegmentHeader INSTANCE = new BigSegmentHeader();
-
-    private static final long UNSIGNED_INT_MASK = 0xFFFFFFFFL;
-
     static final long LOCK_OFFSET = 0L;
+    static final long ENTRIES_OFFSET = LOCK_OFFSET + 8L; // 32-bit
+    static final long LOWEST_POSSIBLY_FREE_CHUNK_OFFSET = ENTRIES_OFFSET + 4L;
+    static final long NEXT_TIER_INDEX_OFFSET = LOWEST_POSSIBLY_FREE_CHUNK_OFFSET + 4L;
+    static final long DELETED_OFFSET = NEXT_TIER_INDEX_OFFSET + 8L;
+    private static final long UNSIGNED_INT_MASK = 0xFFFFFFFFL;
     /**
      * Make the LOCK constant and {@link #A} of final class types (instead of interfaces) as this
      * hopefully help JVM with inlining
      */
     private static final VanillaReadWriteUpdateWithWaitsLockingStrategy LOCK =
             (VanillaReadWriteUpdateWithWaitsLockingStrategy)
-            VanillaReadWriteUpdateWithWaitsLockingStrategy.instance();
+                    VanillaReadWriteUpdateWithWaitsLockingStrategy.instance();
     private static final NativeAccess A = (NativeAccess) Access.nativeAccess();
-
-    static final long ENTRIES_OFFSET = LOCK_OFFSET + 8L; // 32-bit
-    static final long LOWEST_POSSIBLY_FREE_CHUNK_OFFSET = ENTRIES_OFFSET + 4L;
-    static final long NEXT_TIER_INDEX_OFFSET = LOWEST_POSSIBLY_FREE_CHUNK_OFFSET + 4L;
-    static final long DELETED_OFFSET = NEXT_TIER_INDEX_OFFSET + 8L;
-
     private static final int TRY_LOCK_NANOS_THRESHOLD = 2_000_000;
 
-    /**
-     * Previously this value was 2 seconds, but GC pauses often take more time that shouldn't
-     * result to IllegalStateException.
-     */
-    public static final int LOCK_TIMEOUT_SECONDS = 60;
+    public static int LOCK_TIMEOUT_SECONDS;
+
+    static {
+        // Previously this value was 2 seconds, but GC pauses often take more time that shouldn't
+        // result to InterProcessDeadLockException.
+        int timeout = 60;
+        try {
+            timeout = Integer.parseInt(System.getProperty("net.openhft.chronicle.map.lockTimeoutSeconds", String.valueOf(timeout)));
+        } catch (NumberFormatException ex) {
+            // ignore
+        }
+
+        LOCK_TIMEOUT_SECONDS = timeout;
+    }
+
+    private BigSegmentHeader() {
+    }
 
     private static InterProcessDeadLockException deadLock() {
         return new InterProcessDeadLockException(
                 "Failed to acquire the lock in " + LOCK_TIMEOUT_SECONDS + " seconds.\n" +
-                "Possible reasons:\n" +
-                " - The lock was not released by the previous holder. If you use contexts API,\n" +
-                " for example map.queryContext(key), in a try-with-resources block.\n" +
-                " - This Chronicle Map (or Set) instance is persisted to disk, and the previous\n" +
-                " process (or one of parallel accessing processes) has crashed while holding\n" +
-                " this lock. In this case you should use ChronicleMapBuilder.recoverPersistedTo()" +
-                " procedure\n" +
-                " to access the Chronicle Map instance.\n" +
-                " - A concurrent thread or process, currently holding this lock, spends\n" +
-                " unexpectedly long time (more than " + LOCK_TIMEOUT_SECONDS + " seconds) in\n" +
-                " the context (try-with-resource block) or one of overridden interceptor\n" +
-                " methods (or MapMethods, or MapEntryOperations, or MapRemoteOperations)\n" +
-                " while performing an ordinary Map operation or replication. You should either\n" +
-                " redesign your logic to spend less time in critical sections (recommended) or\n" +
-                " acquire this lock with tryLock(time, timeUnit) method call, with sufficient\n" +
-                " time specified.\n" +
-                " - Segment(s) in your Chronicle Map are very large, and iteration over them\n" +
-                " takes more than " + LOCK_TIMEOUT_SECONDS + " seconds. In this case you should\n" +
-                " acquire this lock with tryLock(time, timeUnit) method call, with longer\n" +
-                " timeout specified.\n" +
-                " - This is a dead lock. If you perform multi-key queries, ensure you acquire\n" +
-                " segment locks in the order (ascending by segmentIndex()), you can find\n" +
-                " an example here: https://github.com/OpenHFT/Chronicle-Map#multi-key-queries\n");
+                        "Possible reasons:\n" +
+                        " - The lock was not released by the previous holder. If you use contexts API,\n" +
+                        " for example map.queryContext(key), in a try-with-resources block.\n" +
+                        " - This Chronicle Map (or Set) instance is persisted to disk, and the previous\n" +
+                        " process (or one of parallel accessing processes) has crashed while holding\n" +
+                        " this lock. In this case you should use ChronicleMapBuilder.recoverPersistedTo()" +
+                        " procedure\n" +
+                        " to access the Chronicle Map instance.\n" +
+                        " - A concurrent thread or process, currently holding this lock, spends\n" +
+                        " unexpectedly long time (more than " + LOCK_TIMEOUT_SECONDS + " seconds) in\n" +
+                        " the context (try-with-resource block) or one of overridden interceptor\n" +
+                        " methods (or MapMethods, or MapEntryOperations, or MapRemoteOperations)\n" +
+                        " while performing an ordinary Map operation or replication. You should either\n" +
+                        " redesign your logic to spend less time in critical sections (recommended) or\n" +
+                        " acquire this lock with tryLock(time, timeUnit) method call, with sufficient\n" +
+                        " time specified.\n" +
+                        " - Segment(s) in your Chronicle Map are very large, and iteration over them\n" +
+                        " takes more than " + LOCK_TIMEOUT_SECONDS + " seconds. In this case you should\n" +
+                        " acquire this lock with tryLock(time, timeUnit) method call, with longer\n" +
+                        " timeout specified.\n" +
+                        " - This is a dead lock. If you perform multi-key queries, ensure you acquire\n" +
+                        " segment locks in the order (ascending by segmentIndex()), you can find\n" +
+                        " an example here: https://github.com/OpenHFT/Chronicle-Map#multi-key-queries\n");
     }
 
     private static long roundUpNanosToMillis(long nanos) {
         return NANOSECONDS.toMillis(nanos + 900_000);
     }
 
-    private BigSegmentHeader() {
+    private static boolean innerTryReadLock(
+            long address, long time, TimeUnit unit, boolean interruptible)
+            throws InterruptedException {
+        return LOCK.tryReadLock(A, null, address + LOCK_OFFSET) ||
+                tryReadLock0(address, time, unit, interruptible);
+    }
+
+    private static boolean tryReadLock0(
+            long address, long time, TimeUnit unit, boolean interruptible)
+            throws InterruptedException {
+        long timeInNanos = unit.toNanos(time);
+        if (timeInNanos < TRY_LOCK_NANOS_THRESHOLD) {
+            return tryReadLockNanos(address, timeInNanos, interruptible);
+        } else {
+            return tryReadLockMillis(address, roundUpNanosToMillis(timeInNanos), interruptible);
+        }
+    }
+
+    private static boolean tryReadLockNanos(long address, long timeInNanos, boolean interruptible)
+            throws InterruptedException {
+        long end = System.nanoTime() + timeInNanos;
+        do {
+            if (LOCK.tryReadLock(A, null, address + LOCK_OFFSET))
+                return true;
+            checkInterrupted(interruptible);
+            ThreadHints.onSpinWait();
+        } while (System.nanoTime() <= end);
+        return false;
+    }
+
+    /**
+     * Use a timer which is more insensitive to jumps in time like GCs and context switches.
+     */
+    private static boolean tryReadLockMillis(long address, long timeInMillis, boolean interruptible)
+            throws InterruptedException {
+        long lastTime = System.currentTimeMillis();
+        do {
+            if (LOCK.tryReadLock(A, null, address + LOCK_OFFSET))
+                return true;
+            checkInterrupted(interruptible);
+            ThreadHints.onSpinWait();
+            long now = System.currentTimeMillis();
+            if (now != lastTime) {
+                lastTime = now;
+                timeInMillis--;
+            }
+        } while (timeInMillis >= 0);
+        return false;
+    }
+
+    private static boolean innerTryUpdateLock(
+            long address, long time, TimeUnit unit, boolean interruptible)
+            throws InterruptedException {
+        return LOCK.tryUpdateLock(A, null, address + LOCK_OFFSET) ||
+                tryUpdateLock0(address, time, unit, interruptible);
+    }
+
+    private static boolean tryUpdateLock0(
+            long address, long time, TimeUnit unit, boolean interruptible)
+            throws InterruptedException {
+        long timeInNanos = unit.toNanos(time);
+        if (timeInNanos < TRY_LOCK_NANOS_THRESHOLD) {
+            return tryUpdateLockNanos(address, timeInNanos, interruptible);
+        } else {
+            return tryUpdateLockMillis(address, roundUpNanosToMillis(timeInNanos), interruptible);
+        }
+    }
+
+    private static boolean tryUpdateLockNanos(long address, long timeInNanos, boolean interruptible)
+            throws InterruptedException {
+        long end = System.nanoTime() + timeInNanos;
+        do {
+            if (LOCK.tryUpdateLock(A, null, address + LOCK_OFFSET))
+                return true;
+            checkInterrupted(interruptible);
+            ThreadHints.onSpinWait();
+        } while (System.nanoTime() <= end);
+        return false;
+    }
+
+    /**
+     * Use a timer which is more insensitive to jumps in time like GCs and context switches.
+     */
+    private static boolean tryUpdateLockMillis(
+            long address, long timeInMillis, boolean interruptible) throws InterruptedException {
+        long lastTime = System.currentTimeMillis();
+        do {
+            if (LOCK.tryUpdateLock(A, null, address + LOCK_OFFSET))
+                return true;
+            checkInterrupted(interruptible);
+            ThreadHints.onSpinWait();
+            long now = System.currentTimeMillis();
+            if (now != lastTime) {
+                lastTime = now;
+                timeInMillis--;
+            }
+        } while (timeInMillis >= 0);
+        return false;
+    }
+
+    private static boolean innerTryWriteLock(
+            long address, long time, TimeUnit unit, boolean interruptible)
+            throws InterruptedException {
+        return LOCK.tryWriteLock(A, null, address + LOCK_OFFSET) ||
+                tryWriteLock0(address, time, unit, interruptible);
+    }
+
+    private static boolean tryWriteLock0(
+            long address, long time, TimeUnit unit, boolean interruptible)
+            throws InterruptedException {
+        long timeInNanos = unit.toNanos(time);
+        if (timeInNanos < TRY_LOCK_NANOS_THRESHOLD) {
+            return tryWriteLockNanos(address, timeInNanos, interruptible);
+        } else {
+            return tryWriteLockMillis(address, roundUpNanosToMillis(timeInNanos), interruptible);
+        }
+    }
+
+    private static boolean tryWriteLockNanos(long address, long timeInNanos, boolean interruptible)
+            throws InterruptedException {
+        long end = System.nanoTime() + timeInNanos;
+        registerWait(address);
+        try {
+            do {
+                if (LOCK.tryWriteLockAndDeregisterWait(A, null, address + LOCK_OFFSET))
+                    return true;
+                checkInterrupted(interruptible);
+                ThreadHints.onSpinWait();
+            } while (System.nanoTime() <= end);
+            deregisterWait(address);
+            return false;
+        } catch (Throwable t) {
+            throw tryDeregisterWaitAndRethrow(address, t);
+        }
+    }
+
+    /**
+     * Use a timer which is more insensitive to jumps in time like GCs and context switches.
+     */
+    private static boolean tryWriteLockMillis(
+            long address, long timeInMillis, boolean interruptible) throws InterruptedException {
+        long lastTime = System.currentTimeMillis();
+        registerWait(address);
+        try {
+            do {
+                if (LOCK.tryWriteLockAndDeregisterWait(A, null, address + LOCK_OFFSET))
+                    return true;
+                checkInterrupted(interruptible);
+                ThreadHints.onSpinWait();
+                long now = System.currentTimeMillis();
+                if (now != lastTime) {
+                    lastTime = now;
+                    timeInMillis--;
+                }
+            } while (timeInMillis >= 0);
+            deregisterWait(address);
+            return false;
+        } catch (Throwable t) {
+            throw tryDeregisterWaitAndRethrow(address, t);
+        }
+    }
+
+    private static void checkInterrupted(boolean interruptible) throws InterruptedException {
+        if (interruptible && Thread.interrupted())
+            throw new InterruptedException();
+    }
+
+    private static void registerWait(long address) {
+        LOCK.registerWait(A, null, address + LOCK_OFFSET);
+    }
+
+    private static void deregisterWait(long address) {
+        LOCK.deregisterWait(A, null, address + LOCK_OFFSET);
+    }
+
+    private static boolean innerTryUpgradeUpdateToWriteLock(
+            long address, long time, TimeUnit unit, boolean interruptible)
+            throws InterruptedException {
+        return LOCK.tryUpgradeUpdateToWriteLock(A, null, address + LOCK_OFFSET) ||
+                tryUpgradeUpdateToWriteLock0(address, time, unit, interruptible);
+    }
+
+    private static boolean tryUpgradeUpdateToWriteLock0(
+            long address, long time, TimeUnit unit, boolean interruptible)
+            throws InterruptedException {
+        long timeInNanos = unit.toNanos(time);
+        if (timeInNanos < TRY_LOCK_NANOS_THRESHOLD) {
+            return tryUpgradeUpdateToWriteLockNanos(address, timeInNanos, interruptible);
+        } else {
+            return tryUpgradeUpdateToWriteLockMillis(
+                    address, roundUpNanosToMillis(timeInNanos), interruptible);
+        }
+    }
+
+    private static boolean tryUpgradeUpdateToWriteLockNanos(
+            long address, long timeInNanos, boolean interruptible) throws InterruptedException {
+        long end = System.nanoTime() + timeInNanos;
+        registerWait(address);
+        try {
+            do {
+                if (tryUpgradeUpdateToWriteLockAndDeregisterWait0(address))
+                    return true;
+                checkInterrupted(interruptible);
+                ThreadHints.onSpinWait();
+            } while (System.nanoTime() <= end);
+            deregisterWait(address);
+            return false;
+        } catch (Throwable t) {
+            throw tryDeregisterWaitAndRethrow(address, t);
+        }
+    }
+
+    /**
+     * Use a timer which is more insensitive to jumps in time like GCs and context switches.
+     */
+    private static boolean tryUpgradeUpdateToWriteLockMillis(
+            long address, long timeInMillis, boolean interruptible) throws InterruptedException {
+        long lastTime = System.currentTimeMillis();
+        registerWait(address);
+        try {
+            do {
+                if (tryUpgradeUpdateToWriteLockAndDeregisterWait0(address))
+                    return true;
+                checkInterrupted(interruptible);
+                ThreadHints.onSpinWait();
+                long now = System.currentTimeMillis();
+                if (now != lastTime) {
+                    lastTime = now;
+                    timeInMillis--;
+                }
+            } while (timeInMillis >= 0);
+            deregisterWait(address);
+            return false;
+        } catch (Throwable t) {
+            throw tryDeregisterWaitAndRethrow(address, t);
+        }
+    }
+
+    private static RuntimeException tryDeregisterWaitAndRethrow(long address, Throwable throwable) {
+        try {
+            deregisterWait(address);
+        } catch (Throwable t) {
+            throwable.addSuppressed(t);
+        }
+        throw Jvm.rethrow(throwable);
+    }
+
+    private static boolean tryUpgradeUpdateToWriteLockAndDeregisterWait0(long address) {
+        return LOCK.tryUpgradeUpdateToWriteLockAndDeregisterWait(A, null, address + LOCK_OFFSET);
     }
 
     @Override
@@ -167,54 +423,6 @@ public final class BigSegmentHeader implements SegmentHeader {
         return innerTryReadLock(address, time, unit, true);
     }
 
-    private static boolean innerTryReadLock(
-            long address, long time, TimeUnit unit, boolean interruptible)
-            throws InterruptedException {
-        return LOCK.tryReadLock(A, null, address + LOCK_OFFSET) ||
-                tryReadLock0(address, time, unit, interruptible);
-    }
-
-    private static boolean tryReadLock0(
-            long address, long time, TimeUnit unit, boolean interruptible)
-            throws InterruptedException {
-        long timeInNanos = unit.toNanos(time);
-        if (timeInNanos < TRY_LOCK_NANOS_THRESHOLD) {
-            return tryReadLockNanos(address, timeInNanos, interruptible);
-        } else {
-            return tryReadLockMillis(address, roundUpNanosToMillis(timeInNanos), interruptible);
-        }
-    }
-
-    private static boolean tryReadLockNanos(long address, long timeInNanos, boolean interruptible)
-            throws InterruptedException {
-        long end = System.nanoTime() + timeInNanos;
-        do {
-            if (LOCK.tryReadLock(A, null, address + LOCK_OFFSET))
-                return true;
-            checkInterrupted(interruptible);
-        } while (System.nanoTime() <= end);
-        return false;
-    }
-
-    /**
-     * Use a timer which is more insensitive to jumps in time like GCs and context switches.
-     */
-    private static boolean tryReadLockMillis(long address, long timeInMillis, boolean interruptible)
-            throws InterruptedException {
-        long lastTime = System.currentTimeMillis();
-        do {
-            if (LOCK.tryReadLock(A, null, address + LOCK_OFFSET))
-                return true;
-            checkInterrupted(interruptible);
-            long now = System.currentTimeMillis();
-            if (now != lastTime) {
-                lastTime = now;
-                timeInMillis--;
-            }
-        } while (timeInMillis >= 0);
-        return false;
-    }
-
     @Override
     public boolean tryUpgradeReadToUpdateLock(long address) {
         return LOCK.tryUpgradeReadToUpdateLock(A, null, address + LOCK_OFFSET);
@@ -252,54 +460,6 @@ public final class BigSegmentHeader implements SegmentHeader {
         return innerTryUpdateLock(address, time, unit, true);
     }
 
-    private static boolean innerTryUpdateLock(
-            long address, long time, TimeUnit unit, boolean interruptible)
-            throws InterruptedException {
-        return LOCK.tryUpdateLock(A, null, address + LOCK_OFFSET) ||
-                tryUpdateLock0(address, time, unit, interruptible);
-    }
-
-    private static boolean tryUpdateLock0(
-            long address, long time, TimeUnit unit, boolean interruptible)
-            throws InterruptedException {
-        long timeInNanos = unit.toNanos(time);
-        if (timeInNanos < TRY_LOCK_NANOS_THRESHOLD) {
-            return tryUpdateLockNanos(address, timeInNanos, interruptible);
-        } else {
-            return tryUpdateLockMillis(address, roundUpNanosToMillis(timeInNanos), interruptible);
-        }
-    }
-
-    private static boolean tryUpdateLockNanos(long address, long timeInNanos, boolean interruptible)
-            throws InterruptedException {
-        long end = System.nanoTime() + timeInNanos;
-        do {
-            if (LOCK.tryUpdateLock(A, null, address + LOCK_OFFSET))
-                return true;
-            checkInterrupted(interruptible);
-        } while (System.nanoTime() <= end);
-        return false;
-    }
-
-    /**
-     * Use a timer which is more insensitive to jumps in time like GCs and context switches.
-     */
-    private static boolean tryUpdateLockMillis(
-            long address, long timeInMillis, boolean interruptible) throws InterruptedException {
-        long lastTime = System.currentTimeMillis();
-        do {
-            if (LOCK.tryUpdateLock(A, null, address + LOCK_OFFSET))
-                return true;
-            checkInterrupted(interruptible);
-            long now = System.currentTimeMillis();
-            if (now != lastTime) {
-                lastTime = now;
-                timeInMillis--;
-            }
-        } while (timeInMillis >= 0);
-        return false;
-    }
-
     @Override
     public void writeLock(long address) {
         try {
@@ -327,79 +487,6 @@ public final class BigSegmentHeader implements SegmentHeader {
         return innerTryWriteLock(address, time, unit, true);
     }
 
-    private static boolean innerTryWriteLock(
-            long address, long time, TimeUnit unit, boolean interruptible)
-            throws InterruptedException {
-        return LOCK.tryWriteLock(A, null, address + LOCK_OFFSET) ||
-                tryWriteLock0(address, time, unit, interruptible);
-    }
-
-    private static boolean tryWriteLock0(
-            long address, long time, TimeUnit unit, boolean interruptible)
-            throws InterruptedException {
-        long timeInNanos = unit.toNanos(time);
-        if (timeInNanos < TRY_LOCK_NANOS_THRESHOLD) {
-            return tryWriteLockNanos(address, timeInNanos, interruptible);
-        } else {
-            return tryWriteLockMillis(address, roundUpNanosToMillis(timeInNanos), interruptible);
-        }
-    }
-
-    private static boolean tryWriteLockNanos(long address, long timeInNanos, boolean interruptible)
-            throws InterruptedException {
-        long end = System.nanoTime() + timeInNanos;
-        registerWait(address);
-        try {
-            do {
-                if (LOCK.tryWriteLockAndDeregisterWait(A, null, address + LOCK_OFFSET))
-                    return true;
-                checkInterrupted(interruptible);
-            } while (System.nanoTime() <= end);
-            deregisterWait(address);
-            return false;
-        } catch (Throwable t) {
-            throw tryDeregisterWaitAndRethrow(address, t);
-        }
-    }
-
-    /**
-     * Use a timer which is more insensitive to jumps in time like GCs and context switches.
-     */
-    private static boolean tryWriteLockMillis(
-            long address, long timeInMillis, boolean interruptible) throws InterruptedException {
-        long lastTime = System.currentTimeMillis();
-        registerWait(address);
-        try {
-            do {
-                if (LOCK.tryWriteLockAndDeregisterWait(A, null, address + LOCK_OFFSET))
-                    return true;
-                checkInterrupted(interruptible);
-                long now = System.currentTimeMillis();
-                if (now != lastTime) {
-                    lastTime = now;
-                    timeInMillis--;
-                }
-            } while (timeInMillis >= 0);
-            deregisterWait(address);
-            return false;
-        } catch (Throwable t) {
-            throw tryDeregisterWaitAndRethrow(address, t);
-        }
-    }
-
-    private static void checkInterrupted(boolean interruptible) throws InterruptedException {
-        if (interruptible && Thread.interrupted())
-            throw new InterruptedException();
-    }
-
-    private static void registerWait(long address) {
-        LOCK.registerWait(A, null, address + LOCK_OFFSET);
-    }
-
-    private static void deregisterWait(long address) {
-        LOCK.deregisterWait(A, null, address + LOCK_OFFSET);
-    }
-
     @Override
     public void upgradeUpdateToWriteLock(long address) {
         try {
@@ -425,80 +512,6 @@ public final class BigSegmentHeader implements SegmentHeader {
     public boolean tryUpgradeUpdateToWriteLock(long address, long time, TimeUnit unit)
             throws InterruptedException {
         return innerTryUpgradeUpdateToWriteLock(address, time, unit, true);
-    }
-
-    private static boolean innerTryUpgradeUpdateToWriteLock(
-            long address, long time, TimeUnit unit, boolean interruptible)
-            throws InterruptedException {
-        return LOCK.tryUpgradeUpdateToWriteLock(A, null, address + LOCK_OFFSET) ||
-                tryUpgradeUpdateToWriteLock0(address, time, unit, interruptible);
-    }
-
-    private static boolean tryUpgradeUpdateToWriteLock0(
-            long address, long time, TimeUnit unit, boolean interruptible)
-            throws InterruptedException {
-        long timeInNanos = unit.toNanos(time);
-        if (timeInNanos < TRY_LOCK_NANOS_THRESHOLD) {
-            return tryUpgradeUpdateToWriteLockNanos(address, timeInNanos, interruptible);
-        } else {
-            return tryUpgradeUpdateToWriteLockMillis(
-                    address, roundUpNanosToMillis(timeInNanos), interruptible);
-        }
-    }
-
-    private static boolean tryUpgradeUpdateToWriteLockNanos(
-            long address, long timeInNanos, boolean interruptible) throws InterruptedException {
-        long end = System.nanoTime() + timeInNanos;
-        registerWait(address);
-        try {
-            do {
-                if (tryUpgradeUpdateToWriteLockAndDeregisterWait0(address))
-                    return true;
-                checkInterrupted(interruptible);
-            } while (System.nanoTime() <= end);
-            deregisterWait(address);
-            return false;
-        } catch (Throwable t) {
-            throw tryDeregisterWaitAndRethrow(address, t);
-        }
-    }
-
-    /**
-     * Use a timer which is more insensitive to jumps in time like GCs and context switches.
-     */
-    private static boolean tryUpgradeUpdateToWriteLockMillis(
-            long address, long timeInMillis, boolean interruptible) throws InterruptedException {
-        long lastTime = System.currentTimeMillis();
-        registerWait(address);
-        try {
-            do {
-                if (tryUpgradeUpdateToWriteLockAndDeregisterWait0(address))
-                    return true;
-                checkInterrupted(interruptible);
-                long now = System.currentTimeMillis();
-                if (now != lastTime) {
-                    lastTime = now;
-                    timeInMillis--;
-                }
-            } while (timeInMillis >= 0);
-            deregisterWait(address);
-            return false;
-        } catch (Throwable t) {
-            throw tryDeregisterWaitAndRethrow(address, t);
-        }
-    }
-
-    private static RuntimeException tryDeregisterWaitAndRethrow(long address, Throwable throwable) {
-        try {
-            deregisterWait(address);
-        } catch (Throwable t) {
-            throwable.addSuppressed(t);
-        }
-        throw Jvm.rethrow(throwable);
-    }
-
-    private static boolean tryUpgradeUpdateToWriteLockAndDeregisterWait0(long address) {
-        return LOCK.tryUpgradeUpdateToWriteLockAndDeregisterWait(A, null, address + LOCK_OFFSET);
     }
 
     @Override

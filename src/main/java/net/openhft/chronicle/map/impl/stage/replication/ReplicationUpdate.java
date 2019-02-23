@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.map.impl.stage.replication;
@@ -28,14 +27,20 @@ import net.openhft.sg.Staged;
 
 @Staged
 public abstract class ReplicationUpdate<K> implements RemoteOperationContext<K> {
-    @StageRef SegmentStages s;
-    @StageRef ReplicatedMapEntryStages<K, ?> e;
-    @StageRef ReplicatedChronicleMapHolder<?, ?, ?> mh;
-    @StageRef CheckOnEachPublicOperation checkOnEachPublicOperation;
-
-    @Stage("ReplicationUpdate") public byte innerRemoteIdentifier = (byte) 0;
-    @Stage("ReplicationUpdate") public long innerRemoteTimestamp;
-    @Stage("ReplicationUpdate") public byte innerRemoteNodeIdentifier;
+    @Stage("ReplicationUpdate")
+    public byte innerRemoteIdentifier = (byte) 0;
+    @Stage("ReplicationUpdate")
+    public long innerRemoteTimestamp;
+    @Stage("ReplicationUpdate")
+    public byte innerRemoteNodeIdentifier;
+    @StageRef
+    SegmentStages s;
+    @StageRef
+    ReplicatedMapEntryStages<K, ?> e;
+    @StageRef
+    ReplicatedChronicleMapHolder<?, ?, ?> mh;
+    @StageRef
+    CheckOnEachPublicOperation checkOnEachPublicOperation;
 
     public abstract boolean replicationUpdateInit();
 
@@ -50,7 +55,7 @@ public abstract class ReplicationUpdate<K> implements RemoteOperationContext<K> 
         }
         innerRemoteNodeIdentifier = remoteNodeIdentifier;
     }
-    
+
     public void dropChange() {
         mh.m().dropChange(s.tierIndex, e.pos);
     }
@@ -62,7 +67,7 @@ public abstract class ReplicationUpdate<K> implements RemoteOperationContext<K> 
     public void moveChange(long oldTierIndex, long oldPos, long newPos) {
         mh.m().moveChange(oldTierIndex, oldPos, s.tierIndex, newPos);
     }
-    
+
     public void updateChange() {
         if (!replicationUpdateInit()) {
             raiseChange();

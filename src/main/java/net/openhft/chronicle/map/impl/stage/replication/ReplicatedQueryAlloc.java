@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.map.impl.stage.replication;
@@ -37,13 +36,15 @@ import static net.openhft.chronicle.hash.replication.TimeProvider.systemTimeInte
 @Staged
 public class ReplicatedQueryAlloc extends QueryAlloc {
 
-    @StageRef ReplicatedChronicleMapHolder<?, ?, ?> mh;
-    @StageRef SegmentStages s;
-
     final CleanupAction cleanupAction = new CleanupAction();
+    @StageRef
+    ReplicatedChronicleMapHolder<?, ?, ?> mh;
+    @StageRef
+    SegmentStages s;
 
     /**
      * Returns {@code true} if at least one old deleted entry was removed.
+     *
      * @param prevPos position to skip during cleanup (because cleaned up separately)
      */
     public boolean forcedOldDeletedEntriesCleanup(long prevPos) {
@@ -57,28 +58,6 @@ public class ReplicatedQueryAlloc extends QueryAlloc {
             ((ReplicatedHashSegmentContext<?, ?>) sc)
                     .forEachSegmentReplicableEntry(cleanupAction);
             return cleanupAction.removedCompletely > 0;
-        }
-    }
-
-    private class CleanupAction implements Consumer<ReplicableEntry> {
-        int removedCompletely;
-        long posToSkip;
-        IterationContext<?, ?, ?> iterationContext;
-
-        @Override
-        public void accept(ReplicableEntry e) {
-            ReplicatedChronicleMap<?, ?, ?> map = mh.m();
-            if (!(e instanceof MapAbsentEntry) || iterationContext.pos() == posToSkip)
-                return;
-            long currentTime = currentTime();
-            if (e.originTimestamp() > currentTime)
-                return; // presumably unsynchronized clocks
-            long deleteTimeout = systemTimeIntervalBetween(
-                    e.originTimestamp(), currentTime, map.cleanupTimeoutUnit);
-            if (deleteTimeout <= map.cleanupTimeout || e.isChanged())
-                return;
-            e.doRemoveCompletely();
-            removedCompletely++;
         }
     }
 
@@ -119,6 +98,28 @@ public class ReplicatedQueryAlloc extends QueryAlloc {
             if (visitingFirstAttemptedTier && prevPos >= 0)
                 s.free(prevPos, prevChunks);
             s.nextTier();
+        }
+    }
+
+    private class CleanupAction implements Consumer<ReplicableEntry> {
+        int removedCompletely;
+        long posToSkip;
+        IterationContext<?, ?, ?> iterationContext;
+
+        @Override
+        public void accept(ReplicableEntry e) {
+            ReplicatedChronicleMap<?, ?, ?> map = mh.m();
+            if (!(e instanceof MapAbsentEntry) || iterationContext.pos() == posToSkip)
+                return;
+            long currentTime = currentTime();
+            if (e.originTimestamp() > currentTime)
+                return; // presumably unsynchronized clocks
+            long deleteTimeout = systemTimeIntervalBetween(
+                    e.originTimestamp(), currentTime, map.cleanupTimeoutUnit);
+            if (deleteTimeout <= map.cleanupTimeout || e.isChanged())
+                return;
+            e.doRemoveCompletely();
+            removedCompletely++;
         }
     }
 }

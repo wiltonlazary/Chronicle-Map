@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.map;
@@ -225,6 +224,7 @@ public interface MapMethods<K, V, R> {
     /**
      * Backing {@link ChronicleMap#remove(Object, Object)} method.
      *
+     * @return if the entry was removed
      * @implNote the default implementation is equivalent to <pre>{@code
      * // remove(key, value) should find the entry & remove most of the time,
      * // so don't try to check key presence and value equivalence under read lock first,
@@ -237,8 +237,6 @@ public interface MapMethods<K, V, R> {
      * } else {
      *     return false;
      * }}</pre>
-     *
-     * @return if the entry was removed
      */
     default boolean remove(MapQueryContext<K, V, R> q, Data<V> value) {
         // remove(key, value) should find the entry & remove most of the time,
@@ -284,6 +282,7 @@ public interface MapMethods<K, V, R> {
     /**
      * Backing {@link ChronicleMap#replace(Object, Object, Object)} method.
      *
+     * @return if the entry was replaced
      * @implNote the default implementation is equivalent to <pre>{@code
      * // replace(key, old, new) should find the entry & put new value most of the time,
      * // so don't try to check key presence and value equivalence under read lock first,
@@ -296,8 +295,6 @@ public interface MapMethods<K, V, R> {
      * } else {
      *     return false;
      * }}</pre>
-     *
-     * @return if the entry was replaced
      */
     default boolean replace(MapQueryContext<K, V, R> q,
                             Data<V> oldValue, Data<V> newValue) {
@@ -382,7 +379,7 @@ public interface MapMethods<K, V, R> {
         if (entry != null) {
             V oldValue = entry.value().get();
             V newValue = remappingFunction.apply(q.queriedKey().get(), oldValue);
-            if (newValue != null ) {
+            if (newValue != null) {
                 q.replaceValue(entry, q.wrapValueAsData(newValue));
                 returnValue.returnValue(q.entry().value());
             } else {

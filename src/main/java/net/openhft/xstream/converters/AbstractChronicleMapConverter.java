@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 package net.openhft.xstream.converters;
 
@@ -22,7 +21,6 @@ import com.thoughtworks.xstream.converters.MarshallingContext;
 import com.thoughtworks.xstream.converters.UnmarshallingContext;
 import com.thoughtworks.xstream.io.HierarchicalStreamReader;
 import com.thoughtworks.xstream.io.HierarchicalStreamWriter;
-import net.openhft.chronicle.values.ValueModel;
 import net.openhft.chronicle.values.Values;
 import org.jetbrains.annotations.NotNull;
 
@@ -43,71 +41,6 @@ class AbstractChronicleMapConverter<K, V> implements Converter {
     AbstractChronicleMapConverter(@NotNull Map<K, V> map) {
         this.map = map;
         this.mapClazz = map.getClass();
-    }
-
-    @Override
-    public boolean canConvert(Class aClass) {
-        //noinspection unchecked
-        return mapClazz.isAssignableFrom(aClass);
-    }
-
-    @Override
-    public void marshal(Object o, HierarchicalStreamWriter writer, MarshallingContext
-            marshallingContext) {
-
-        for (Map.Entry e : (Iterable<Map.Entry>) ((Map) o).entrySet()) {
-
-            writer.startNode("entry");
-            {
-                final Object key = e.getKey();
-                writer.startNode(key.getClass().getName());
-                marshallingContext.convertAnother(key);
-                writer.endNode();
-
-                Object value = e.getValue();
-                writer.startNode(value.getClass().getName());
-                marshallingContext.convertAnother(value);
-                writer.endNode();
-            }
-            writer.endNode();
-        }
-}
-
-    @Override
-    public Object unmarshal(HierarchicalStreamReader reader,
-                            UnmarshallingContext context) {
-        // empty map
-        if ("[\"\"]".equals(reader.getValue()))
-            return null;
-        if (!"cmap".equals(reader.getNodeName()))
-            throw new ConversionException("should be under 'cmap' node");
-        reader.moveDown();
-        while (reader.hasMoreChildren()) {
-            reader.moveDown();
-
-            final String nodeName0 = reader.getNodeName();
-
-            if (!nodeName0.equals("entry"))
-                throw new ConversionException("unable to convert node named=" + nodeName0);
-
-            final K k;
-            final V v;
-
-            reader.moveDown();
-            k = deserialize(context, reader);
-            reader.moveUp();
-
-            reader.moveDown();
-            v = deserialize(context, reader);
-            reader.moveUp();
-
-            if (k != null)
-                map.put(k, v);
-
-            reader.moveUp();
-        }
-        reader.moveUp();
-        return null;
     }
 
     private static <E> E deserialize(@NotNull UnmarshallingContext unmarshallingContext,
@@ -151,7 +84,72 @@ class AbstractChronicleMapConverter<K, V> implements Converter {
             } catch (Exception e1) {
                 throw new ConversionException("class=" + clazz, e1);
             }
-}
+        }
+    }
+
+    @Override
+    public boolean canConvert(Class aClass) {
+        //noinspection unchecked
+        return mapClazz.isAssignableFrom(aClass);
+    }
+
+    @Override
+    public void marshal(Object o, HierarchicalStreamWriter writer, MarshallingContext
+            marshallingContext) {
+
+        for (Map.Entry e : (Iterable<Map.Entry>) ((Map) o).entrySet()) {
+
+            writer.startNode("entry");
+            {
+                final Object key = e.getKey();
+                writer.startNode(key.getClass().getName());
+                marshallingContext.convertAnother(key);
+                writer.endNode();
+
+                Object value = e.getValue();
+                writer.startNode(value.getClass().getName());
+                marshallingContext.convertAnother(value);
+                writer.endNode();
+            }
+            writer.endNode();
+        }
+    }
+
+    @Override
+    public Object unmarshal(HierarchicalStreamReader reader,
+                            UnmarshallingContext context) {
+        // empty map
+        if ("[\"\"]".equals(reader.getValue()))
+            return null;
+        if (!"cmap".equals(reader.getNodeName()))
+            throw new ConversionException("should be under 'cmap' node");
+        reader.moveDown();
+        while (reader.hasMoreChildren()) {
+            reader.moveDown();
+
+            final String nodeName0 = reader.getNodeName();
+
+            if (!nodeName0.equals("entry"))
+                throw new ConversionException("unable to convert node named=" + nodeName0);
+
+            final K k;
+            final V v;
+
+            reader.moveDown();
+            k = deserialize(context, reader);
+            reader.moveUp();
+
+            reader.moveDown();
+            v = deserialize(context, reader);
+            reader.moveUp();
+
+            if (k != null)
+                map.put(k, v);
+
+            reader.moveUp();
+        }
+        reader.moveUp();
+        return null;
     }
 
 }

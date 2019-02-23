@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.map;
@@ -39,7 +38,7 @@ public class TrickyContextCasesTest {
                 .of(Integer.class, IntValue.class)
                 .entries(1).create();
 
-        IntValue v =  Values.newHeapInstance(IntValue.class);
+        IntValue v = Values.newHeapInstance(IntValue.class);
         v.setValue(2);
         map.put(1, v);
         try (ExternalMapQueryContext<Integer, IntValue, ?> q = map.queryContext(1)) {
@@ -61,8 +60,8 @@ public class TrickyContextCasesTest {
                 .of(Integer.class, byte[].class)
                 .averageValue(new byte[1])
                 .entries(100).actualSegments(1).create();
-        map.put(1, new byte[] {1});
-        map.put(2, new byte[] {2});
+        map.put(1, new byte[]{1});
+        map.put(2, new byte[]{2});
         try (ExternalMapQueryContext<Integer, byte[], ?> q = map.queryContext(1)) {
             MapEntry<Integer, byte[]> entry = q.entry(); // acquires read lock implicitly
             assertNotNull(entry);
@@ -70,9 +69,9 @@ public class TrickyContextCasesTest {
                 // this call should try to acquire write lock, that should lead to dead lock
                 // but if not...
                 // relocates the entry for the key 1 after the entry for 2, under update lock
-                map.put(1, new byte[] {1, 2, 3, 4, 5});
+                map.put(1, new byte[]{1, 2, 3, 4, 5});
                 // puts the entry for 3 at the place of the entry for the key 1, under update lock
-                map.put(3, new byte[] {3});
+                map.put(3, new byte[]{3});
             }).get();
             // prints [3]
             System.out.println(Arrays.toString(entry.value().get()));

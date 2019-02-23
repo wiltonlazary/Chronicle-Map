@@ -1,0 +1,63 @@
+= Chronicle Map Frequently Asked Questions
+Neil Clifford, Peter Lawrey, Rob Austin, Jerry Shea
+:toc: manual
+:toclevels: 1
+:css-signature: demo
+:toc-placement: preamble
+:icons: font
+
+This document provides information for some common tasks within Chronicle Map.
+
+== Can I use Chronicle Map as a  replacement of `Redis`, with concurrency in mind?
+
+===== Question
+
+I am investigating Chronicle Map as a potential replacement of `Redis`; with concurrency in mind.
+
+In our architecture, we would be looking to replace a "large" `Redis` instance that currently has multiple clients connecting to it, causing latency pileups due to ``Redis``'s blocking nature.
+
+The issue is that we need to make requests in random batches of ~1000. With `Redis` we are able to make a single request via a `Lua` script (or multi-get / multi-set commands) and receive a single response. In the documentation on Chronicle Map`s stateless client, I see that the remote calls are blocking, and can be made only one key at a time; so for us the solution is not obvious.
+
+While I am considering passing off each individual key task to a threadpool running `x` blocking threads at a time, I wonder if there might be a better solution, that could take advantage of doing RPC in batches, and perhaps work asynchronously. As I do not see this available currently, my question is whether this is an enhancement that you might consider, or if you could perhaps point me to if/how we could write our own solution for doing this?
+
+Also, is there a reason these `1000` `gets` have be done serially in one thread? Why not submit `1000 get()` tasks to a pool of say `20` threads. Wouldn't this improve throughput and reduce latency?
+
+===== Answer
+
+The stateless client has been replaced with Chronicle Engine. The stateless client is not supported in ChronicleMap 3.x.  For  more information, please refer to Chronicle Engine FAQ's.
+
+For `get()s`, parallelizing will reduce costs. For `put()s`, if you have concurrency requirements, that is, multi-key lock before updating all of them, it should be in one thread.
+
+You would not gain a performance benefit by using batches, unless you are compressing the batch of data. All the data will have to be sent via TCP, even if it is in a batch.
+
+NOTE: Under high load, the Chronicle Map stateless client consolidates many small TCP requests into a single request when run with a number of threads.
+
+== Does Chronicle Map/Chronicle Queue work by using Memory Mapped Files?
+
+===== Question
+Does Chronicle Map work by using Memory Mapped Files?
+
+===== Answer
+Yes;  Chronicle Map uses memory mapped files see https://en.wikipedia.org/wiki/Memory-mapped_file. This works the same way on both Linux and Windows.
+
+
+== Is there a difference in performance between Linux and Windows systems?
+
+===== Question
+Is there a difference in performance between Linux and Windows systems?
+
+
+===== Answer
+The same code is run on both Windows and Linux. However, we encourage all our clients to use Linux, as it has improved handling of memory mapped files over Windows. 
+
+== Will Chronicle Map work in *Docker* environments?
+
+===== Question
+Will Chronicle Map work in *Docker* environments “out-of-the-box”. For example, two java programs running on dockers?
+
+===== Answer
+While Chronicle Map has not been tested with *Docker*, we are not aware of any reason why it would not if you use Chronicle Map for IPC (https://en.wikipedia.org/wiki/Inter-process_communication). In other words, if you  distribute data between two or more instances of the same map, then the same memory mapped file which holds your map data would have to be available to all the instances of Chronicle Map. We assume this would have to be in the same docker. Alternatively, you could replicate the data between your maps using Chronicle Map Enterprise.
+
+
+'''
+<<../ReadMe.adoc#,Back to ReadMe>>

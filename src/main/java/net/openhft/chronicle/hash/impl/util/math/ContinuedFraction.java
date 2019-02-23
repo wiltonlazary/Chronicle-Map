@@ -1,19 +1,19 @@
 /*
- *      Copyright (C) 2015  higherfrequencytrading.com
- *      Copyright 2001-2015 The Apache Software Foundation
- *      Copyright 2010-2012 CS Systèmes d'Information
+ * Copyright 2012-2018 Chronicle Map Contributors
+ * Copyright 2001-2015 The Apache Software Foundation
+ * Copyright 2010-2012 CS Systèmes d'Information
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.hash.impl.util.math;
@@ -21,7 +21,7 @@ package net.openhft.chronicle.hash.impl.util.math;
 /**
  * Provides a generic means to evaluate continued fractions.  Subclasses simply
  * provided the a and b coefficients to evaluate the continued fraction.
- *
+ * <p>
  * <p>
  * References:
  * <ul>
@@ -29,13 +29,13 @@ package net.openhft.chronicle.hash.impl.util.math;
  * Continued Fraction</a></li>
  * </ul>
  * </p>
- *
  */
 abstract class ContinuedFraction {
 
     /**
      * Access the n-th a coefficient of the continued fraction.  Since a can be
      * a function of the evaluation point, x, that is passed in as well.
+     *
      * @param n the coefficient index to retrieve.
      * @param x the evaluation point.
      * @return the n-th a coefficient.
@@ -45,6 +45,7 @@ abstract class ContinuedFraction {
     /**
      * Access the n-th b coefficient of the continued fraction.  Since b can be
      * a function of the evaluation point, x, that is passed in as well.
+     *
      * @param n the coefficient index to retrieve.
      * @param x the evaluation point.
      * @return the n-th b coefficient.
@@ -57,18 +58,18 @@ abstract class ContinuedFraction {
      * The implementation of this method is based on the modified Lentz algorithm as described
      * on page 18 ff. in:
      * <ul>
-     *   <li>
-     *   I. J. Thompson,  A. R. Barnett. "Coulomb and Bessel Functions of Complex Arguments and Order."
-     *   <a target="_blank" href="http://www.fresco.org.uk/papers/Thompson-JCP64p490.pdf">
-     *   http://www.fresco.org.uk/papers/Thompson-JCP64p490.pdf</a>
-     *   </li>
+     * <li>
+     * I. J. Thompson,  A. R. Barnett. "Coulomb and Bessel Functions of Complex Arguments and Order."
+     * <a target="_blank" href="http://www.fresco.org.uk/papers/Thompson-JCP64p490.pdf">
+     * http://www.fresco.org.uk/papers/Thompson-JCP64p490.pdf</a>
+     * </li>
      * </ul>
      * <b>Note:</b> the implementation uses the terms a<sub>i</sub> and b<sub>i</sub> as defined in
      * <a href="http://mathworld.wolfram.com/ContinuedFraction.html">Continued Fraction @ MathWorld</a>.
      * </p>
      *
-     * @param x the evaluation point.
-     * @param epsilon maximum error allowed.
+     * @param x             the evaluation point.
+     * @param epsilon       maximum error allowed.
      * @param maxIterations maximum number of convergents
      * @return the value of the continued fraction evaluated at x.
      * @throws IllegalStateException if the algorithm fails to converge.

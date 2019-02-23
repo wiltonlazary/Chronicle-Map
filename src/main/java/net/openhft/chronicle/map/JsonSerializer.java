@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 package net.openhft.chronicle.map;
 
@@ -34,6 +33,20 @@ import java.util.zip.GZIPOutputStream;
  */
 class JsonSerializer {
 
+    static final String logErrorSuggestXStreem =
+            "map.getAll(<file>) and map.putAll(<file>) methods require the JSON XStream serializer, " +
+                    "we don't include these artifacts by default as some users don't require this functionality. " +
+                    "Please add the following artifacts to your project\n" +
+                    "<dependency>\n" +
+                    " <groupId>xstream</groupId>\n" +
+                    " <artifactId>xstream</artifactId>\n" +
+                    " <version>1.2.2</version>\n" +
+                    "</dependency>\n" +
+                    "<dependency>\n" +
+                    " <groupId>org.codehaus.jettison</groupId>\n" +
+                    " <artifactId>jettison</artifactId>\n" +
+                    " <version>1.3.6</version>\n" +
+                    "</dependency>\n";
     private static final Logger LOG = LoggerFactory.getLogger(JsonSerializer.class);
 
     static synchronized <K, V> void getAll(File toFile, Map<K, V> map, List jsonConverters) throws IOException {
@@ -78,28 +91,13 @@ class JsonSerializer {
                             " expecting an object of type com.thoughtworks.xstream.converters" +
                             ".Converter");
                 }
-}
+            }
 
             return xstream;
         } catch (NoClassDefFoundError e) {
             throw new RuntimeException(logErrorSuggestXStreem, e);
         }
     }
-
-    static final String logErrorSuggestXStreem =
-            "map.getAll(<file>) and map.putAll(<file>) methods require the JSON XStream serializer, " +
-                "we don't include these artifacts by default as some users don't require this functionality. " +
-                "Please add the following artifacts to your project\n" +
-                "<dependency>\n" +
-                " <groupId>xstream</groupId>\n" +
-                " <artifactId>xstream</artifactId>\n" +
-                " <version>1.2.2</version>\n" +
-                "</dependency>\n" +
-                "<dependency>\n" +
-                " <groupId>org.codehaus.jettison</groupId>\n" +
-                " <artifactId>jettison</artifactId>\n" +
-                " <version>1.3.6</version>\n" +
-                "</dependency>\n";
 
     private static <K, V> void registerChronicleMapConverter(Map<K, V> map, XStream xstream) {
         xstream.registerConverter(new VanillaChronicleMapConverter<>(map));

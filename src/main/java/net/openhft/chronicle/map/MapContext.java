@@ -1,26 +1,25 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.map;
 
 import net.openhft.chronicle.bytes.BytesStore;
 import net.openhft.chronicle.hash.ChronicleHash;
-import net.openhft.chronicle.hash.HashContext;
 import net.openhft.chronicle.hash.Data;
+import net.openhft.chronicle.hash.HashContext;
 
 /**
  * Context, in which {@link MapEntry MapEntries} are accessed. {@code MapContext} allows to access
@@ -31,7 +30,7 @@ import net.openhft.chronicle.hash.Data;
  * configured for the accessed {@code ChronicleMap} via {@link
  * ChronicleMapBuilder#defaultValueProvider(DefaultValueProvider)}, or the default {@code
  * DefaultValueProvider} implementation.
- * 
+ *
  * @param <K> the map key type
  * @param <V> the map value type
  * @param <R> the return type of {@link MapEntryOperations} specified for the queried map
@@ -52,8 +51,8 @@ public interface MapContext<K, V, R>
     /**
      * Wraps the given value as a {@code Data}. Useful when you need to pass a value
      * to some method accepting {@code Data}, for example, {@link MapEntryOperations#replaceValue(
-     * MapEntry, Data)}, without allocating new objects (i. e. garbage) and {@code ThreadLocals}.
-     *
+     *MapEntry, Data)}, without allocating new objects (i. e. garbage) and {@code ThreadLocals}.
+     * <p>
      * <p>The returned {@code Data} object shouldn't outlive this {@code MapContext}.
      *
      * @param value the value object to wrap
@@ -64,13 +63,13 @@ public interface MapContext<K, V, R>
     /**
      * Wraps the given value bytes as a {@code Data}. Useful when you need to pass a value
      * to some method accepting {@code Data}, for example, {@link MapEntryOperations#replaceValue(
-     * MapEntry, Data)}, without allocating manual deserialization and {@code ThreadLocals}.
-     *
+     *MapEntry, Data)}, without allocating manual deserialization and {@code ThreadLocals}.
+     * <p>
      * <p>The returned {@code Data} object shouldn't outlive this {@code MapContext}.
      *
      * @param valueBytes the value bytes to wrap
-     * @param offset offset within the given valueBytes, the actual value bytes start from
-     * @param size length of the value bytes sequence
+     * @param offset     offset within the given valueBytes, the actual value bytes start from
+     * @param size       length of the value bytes sequence
      * @return the value bytes as {@code Data}
      */
     Data<V> wrapValueBytesAsData(BytesStore valueBytes, long offset, long size);

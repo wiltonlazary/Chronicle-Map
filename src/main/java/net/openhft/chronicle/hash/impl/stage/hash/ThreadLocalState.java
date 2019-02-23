@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.hash.impl.stage.hash;
@@ -46,8 +45,8 @@ public abstract class ThreadLocalState {
         }
     }
 
-    private volatile int contextLock = CONTEXT_UNLOCKED;
     public boolean iterationContextLockedInThisThread;
+    private volatile int contextLock = CONTEXT_UNLOCKED;
 
     /**
      * Returns {@code true} if this is the outer context lock in this thread, {@code false} if this
@@ -98,7 +97,7 @@ public abstract class ThreadLocalState {
         if (owner() == Thread.currentThread()) {
             throw new IllegalStateException(chronicleHashIdentityString +
                     ": Attempt to close a Chronicle Hash in the context " +
-                            "of not yet finished query or iteration");
+                    "of not yet finished query or iteration");
         }
         // If the context belongs to a different thread, wait until that thread finishes it's work
         // with the context:

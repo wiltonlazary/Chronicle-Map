@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.map;
@@ -32,6 +31,16 @@ import static java.util.Collections.emptyList;
 import static net.openhft.chronicle.hash.impl.util.Objects.requireNonNull;
 
 interface AbstractChronicleMap<K, V> extends ChronicleMap<K, V> {
+
+    // TODO quick and dirty. Think about how generic guava/koloboke equivalence interface could be
+    // used. See also BytesInterop.equivalent() and hash().
+    static int hashCode(Object obj) {
+        if (!(obj instanceof CharSequence)) {
+            return obj.hashCode();
+        } else {
+            return CharSequences.hash((CharSequence) obj);
+        }
+    }
 
     @Override
     default <R> R getMapped(K key, @NotNull SerializableFunction<? super V, R> function) {
@@ -84,7 +93,7 @@ interface AbstractChronicleMap<K, V> extends ChronicleMap<K, V> {
             @Override
             public Iterator<V> iterator() {
                 return new Iterator<V>() {
-                    private Iterator<Entry<K,V>> i = entrySet().iterator();
+                    private Iterator<Entry<K, V>> i = entrySet().iterator();
 
                     @Override
                     public boolean hasNext() {
@@ -170,7 +179,7 @@ interface AbstractChronicleMap<K, V> extends ChronicleMap<K, V> {
 
         if (!(o instanceof Map))
             return false;
-        Map<?,?> m = (Map<?,?>) o;
+        Map<?, ?> m = (Map<?, ?>) o;
         if ((m instanceof ChronicleMap ? ((ChronicleMap) m).longSize() : m.size()) != longSize())
             return false;
 
@@ -188,9 +197,7 @@ interface AbstractChronicleMap<K, V> extends ChronicleMap<K, V> {
                 }
                 return v != null && c.value().equals(c.context().wrapValueAsData(v));
             });
-        } catch (ClassCastException unused) {
-            return false;
-        } catch (NullPointerException unused) {
+        } catch (ClassCastException | NullPointerException unused) {
             return false;
         }
     }
@@ -199,16 +206,6 @@ interface AbstractChronicleMap<K, V> extends ChronicleMap<K, V> {
         int[] h = new int[1];
         forEach((k, v) -> h[0] += hashCode(k) ^ hashCode(v));
         return h[0];
-    }
-
-    // TODO quick and dirty. Think about how generic guava/koloboke equivalence interface could be
-    // used. See also BytesInterop.equivalent() and hash().
-    static int hashCode(Object obj) {
-        if (!(obj instanceof CharSequence)) {
-            return obj.hashCode();
-        } else {
-            return CharSequences.hash((CharSequence) obj);
-        }
     }
 
     default String mapToString() {

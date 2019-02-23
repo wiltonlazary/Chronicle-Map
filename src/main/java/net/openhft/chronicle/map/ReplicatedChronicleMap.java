@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.map;
@@ -82,6 +81,9 @@ import static net.openhft.chronicle.hash.replication.TimeProvider.currentTime;
  * made to one node should be identical to the decision made to the other. We resolve this simple
  * dilemma by using a node identifier, each node will have a unique identifier, the update from the
  * node with the smallest identifier wins. </p>
+ * <p>This a one of the basic building blocks needed to implement a fully-functioning Chronicle Map
+ * cluster, such as that provided in
+ * <a href="http://chronicle.software/products/chronicle-map/">Chronicle Map Enterprise</a>.</p>
  *
  * @param <K> the entries key type
  * @param <V> the entries value type
@@ -89,23 +91,23 @@ import static net.openhft.chronicle.hash.replication.TimeProvider.currentTime;
 public class ReplicatedChronicleMap<K, V, R> extends VanillaChronicleMap<K, V, R>
         implements Replica, Replica.EntryExternalizable {
 
-    private static final Logger LOG = LoggerFactory.getLogger(ReplicatedChronicleMap.class);
-
     public static final int ADDITIONAL_ENTRY_BYTES = 10;
-
     static final byte ENTRY_HUNK = 1;
     static final byte BOOTSTRAP_TIME_HUNK = 2;
-
+    private static final Logger LOG = LoggerFactory.getLogger(ReplicatedChronicleMap.class);
+    public transient boolean cleanupRemovedEntries;
+    public transient long cleanupTimeout;
+    public transient TimeUnit cleanupTimeoutUnit;
+    public transient MapRemoteOperations<K, V, R> remoteOperations;
+    transient BitSetFrame tierModIterFrame;
     private long tierModIterBitSetSizeInBits;
     private long tierModIterBitSetOuterSize;
     private long segmentModIterBitSetsForIdentifierOuterSize;
     private long tierBulkModIterBitSetsForIdentifierOuterSize;
-
     /**
      * Default value is 0, that corresponds to "unset" identifier value (valid ids are positive)
      */
     private transient byte localIdentifier;
-
     /**
      * Idiomatically {@code assignedModificationIterators} should be a {@link CopyOnWriteArraySet},
      * but we should frequently iterate over this array without creating any garbage,
@@ -114,15 +116,6 @@ public class ReplicatedChronicleMap<K, V, R> extends VanillaChronicleMap<K, V, R
     private transient ModificationIterator[] assignedModificationIterators;
     private transient AtomicReferenceArray<ModificationIterator> modificationIterators;
     private transient long startOfModificationIterators;
-
-    public transient boolean cleanupRemovedEntries;
-    public transient long cleanupTimeout;
-    public transient TimeUnit cleanupTimeoutUnit;
-    
-    public transient MapRemoteOperations<K, V, R> remoteOperations;
-
-    transient BitSetFrame tierModIterFrame;
-
     private transient long[] remoteNodeCouldBootstrapFrom;
 
     public ReplicatedChronicleMap(@NotNull ChronicleMapBuilder<K, V> builder) throws IOException {
@@ -187,8 +180,6 @@ public class ReplicatedChronicleMap<K, V, R> extends VanillaChronicleMap<K, V, R
     void initTransientsFromBuilder(ChronicleMapBuilder<K, V> builder) {
         super.initTransientsFromBuilder(builder);
         this.localIdentifier = builder.replicationIdentifier;
-        if (localIdentifier == -1)
-            throw new IllegalStateException("localIdentifier should not be -1");
         //noinspection unchecked
         this.remoteOperations = (MapRemoteOperations<K, V, R>) builder.remoteOperations;
         cleanupRemovedEntries = builder.cleanupRemovedEntries;
@@ -550,7 +541,7 @@ public class ReplicatedChronicleMap<K, V, R> extends VanillaChronicleMap<K, V, R
                 // lambda is used instead of constructor reference because currently stage-compiler
                 // has issues with parsing method/constructor refs.
                 // TODO replace with constructor ref when stage-compiler is improved
-                (c, m) -> new CompiledReplicatedMapQueryContext<K, V, R>(c, m), this);
+                CompiledReplicatedMapQueryContext::new, this);
     }
 
     /**
@@ -581,7 +572,17 @@ public class ReplicatedChronicleMap<K, V, R> extends VanillaChronicleMap<K, V, R
                 // lambda is used instead of constructor reference because currently stage-compiler
                 // has issues with parsing method/constructor refs.
                 // TODO replace with constructor ref when stage-compiler is improved
-                (c, m) -> new CompiledReplicatedMapIterationContext<K, V, R>(c, m), this);
+                CompiledReplicatedMapIterationContext::new, this);
+    }
+
+    @Override
+    public final V get(Object key) {
+        return defaultGet(key);
+    }
+
+    @Override
+    public final V getUsing(K key, V usingValue) {
+        return defaultGetUsing(key, usingValue);
     }
 
     /**
@@ -692,7 +693,7 @@ public class ReplicatedChronicleMap<K, V, R> extends VanillaChronicleMap<K, V, R
         }
 
         private long bitSetsAddr(TierBulkData tierBulkData) {
-            return tierBulkData.bytesStore.address(tierBulkData.offset) +
+            return tierBulkData.bytesStore.addressForRead(tierBulkData.offset) +
                     offsetToBitSetsWithinATierBulk;
         }
 
@@ -919,15 +920,5 @@ public class ReplicatedChronicleMap<K, V, R> extends VanillaChronicleMap<K, V, R
                 tierModIterFrame.clearRange(nativeAccess(), null, bitSetAddr, pos, endPosExclusive);
             }
         }
-    }
-
-    @Override
-    public final V get(Object key) {
-        return defaultGet(key);
-    }
-
-    @Override
-    public final V getUsing(K key, V usingValue) {
-        return defaultGetUsing(key, usingValue);
     }
 }

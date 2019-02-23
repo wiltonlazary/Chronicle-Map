@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.map;
@@ -211,7 +210,7 @@ public class Issue63Test {
 
         Path knownItemsPath = Paths.get(persistToDir + "/I-known-items.dat");
 
-        System.err.println("Loading knownItems");
+        //System.err.println("Loading knownItems");
         ArrayList<CharSequence> averageKnownItems = new ArrayList<>();
         for (int i = 0; i < 100; i++) {
             averageKnownItems.add("average sized known item");
@@ -231,7 +230,7 @@ public class Issue63Test {
             knownItems = knownItemsBuilder.createPersistedTo(knownItemsPath.toFile());
         }
 
-        System.err.println("Loading xVectors");
+        //System.err.println("Loading xVectors");
         Path xVectorsPath = Paths.get(persistToDir + "/" + "X-vectors.dat");
         ChronicleMapBuilder<CharSequence, float[]> xVectorsBuilder = ChronicleMap
                 .of(CharSequence.class, float[].class)
@@ -245,7 +244,7 @@ public class Issue63Test {
             xVectors = xVectorsBuilder.createPersistedTo(xVectorsPath.toFile());
         }
 
-        System.err.println("Loading xRecentIds");
+        //System.err.println("Loading xRecentIds");
         Path xRecentIDsPath = Paths.get(persistToDir + "/" + "X-recent-ids.dat");
         ChronicleSetBuilder<CharSequence> xRecentBuilder = ChronicleSet
                 .of(CharSequence.class)
@@ -257,7 +256,7 @@ public class Issue63Test {
             xRecentIDs = xRecentBuilder.createPersistedTo(xRecentIDsPath.toFile());
         }
 
-        System.err.println("Loading yVectors");
+        //System.err.println("Loading yVectors");
         Path yVectorsPath = Paths.get(persistToDir + "/" + "Y-vectors.dat");
         ChronicleMapBuilder<CharSequence, float[]> yVectorsBuilder = ChronicleMap
                 .of(CharSequence.class, float[].class)
@@ -271,7 +270,7 @@ public class Issue63Test {
             yVectors = yVectorsBuilder.createPersistedTo(yVectorsPath.toFile());
         }
 
-        System.err.println("Loading yRecentIDs");
+        //System.err.println("Loading yRecentIDs");
         Path yRecentIDsPath = Paths.get(persistToDir + "/" + "Y-recent-ids.dat");
         ChronicleSetBuilder<CharSequence> yRecentBuilder = ChronicleSet
                 .of(CharSequence.class)
@@ -345,9 +344,9 @@ public class Issue63Test {
        /* ids.forEach((id) -> {
             System.out.println(knownItems2.get(id.subSequence(0, id.length())));
         });*/
-        knownItems2.forEach((id, list) -> {
-            System.out.println(id + " : " + String.join(",", list));
-        });
+//        knownItems2.forEach((id, list) -> {
+//            System.out.println(id + " : " + String.join(",", list));
+//        });
 
     }
 }

@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.hash.impl;
@@ -25,21 +24,22 @@ import net.openhft.chronicle.core.Maths;
 import net.openhft.chronicle.core.OS;
 import net.openhft.chronicle.hash.*;
 import net.openhft.chronicle.hash.impl.util.BuildVersion;
+import net.openhft.chronicle.hash.impl.util.Cleaner;
+import net.openhft.chronicle.hash.impl.util.CleanerUtils;
+import net.openhft.chronicle.hash.impl.util.jna.PosixFallocate;
 import net.openhft.chronicle.hash.impl.util.jna.PosixMsync;
 import net.openhft.chronicle.hash.impl.util.jna.WindowsMsync;
 import net.openhft.chronicle.hash.serialization.DataAccess;
 import net.openhft.chronicle.hash.serialization.SizeMarshaller;
 import net.openhft.chronicle.hash.serialization.SizedReader;
 import net.openhft.chronicle.hash.serialization.impl.SerializationBuilder;
+import net.openhft.chronicle.map.ChronicleHashCorruptionImpl;
 import net.openhft.chronicle.map.ChronicleMapBuilder;
 import net.openhft.chronicle.values.Values;
 import net.openhft.chronicle.wire.Marshallable;
 import net.openhft.chronicle.wire.WireIn;
 import net.openhft.chronicle.wire.WireOut;
 import org.jetbrains.annotations.NotNull;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import sun.misc.Cleaner;
 
 import java.io.Closeable;
 import java.io.File;
@@ -60,124 +60,96 @@ import static net.openhft.chronicle.algo.MemoryUnit.*;
 import static net.openhft.chronicle.algo.bytes.Access.nativeAccess;
 import static net.openhft.chronicle.core.OS.pageAlign;
 import static net.openhft.chronicle.hash.impl.CompactOffHeapLinearHashTable.*;
+import static net.openhft.chronicle.map.ChronicleHashCorruptionImpl.format;
+import static net.openhft.chronicle.map.ChronicleHashCorruptionImpl.report;
 
 public abstract class VanillaChronicleHash<K,
         C extends HashEntry<K>, SC extends HashSegmentContext<K, ?>,
         ECQ extends ExternalHashQueryContext<K>>
         implements ChronicleHash<K, C, SC, ECQ>, Marshallable {
 
-    private static final Logger LOG = LoggerFactory.getLogger(VanillaChronicleHash.class);
-
     public static final long TIER_COUNTERS_AREA_SIZE = 64;
     public static final long RESERVED_GLOBAL_MUTABLE_STATE_BYTES = 1024;
 
     // --- Start of instance fields ---
-
-    /////////////////////////////////////////////////
-    private String dataFileVersion;
-
+    /**
+     * Global mutable state lock doesn't yet need read-write levels and waits;
+     * Used the same locking strategy as in segment locks
+     * (VanillaReadWriteUpdateWithWaitsLockingStrategy) in order to simplify Chronicle Map
+     * specification (having only one kind of locks to specify and implement).
+     */
+    static final LockingStrategy globalMutableStateLockingStrategy =
+            VanillaReadWriteUpdateWithWaitsLockingStrategy.instance();
+    static final TryAcquireOperation<LockingStrategy> globalMutableStateLockTryAcquireOperation =
+            TryAcquireOperations.lock();
+    static final
+    AcquisitionStrategy<LockingStrategy, RuntimeException>
+            globalMutableStateLockAcquisitionStrategy =
+            AcquisitionStrategies.spinLoopOrFail(2, TimeUnit.SECONDS);
+    private static final long GLOBAL_MUTABLE_STATE_LOCK_OFFSET = 0L;
+    private static final long GLOBAL_MUTABLE_STATE_VALUE_OFFSET = 8L;
     /////////////////////////////////////////////////
     // If the hash was created in the first place, or read from disk
     public transient boolean createdOrInMemory;
-
     /////////////////////////////////////////////////
     // Key Data model
     public Class<K> keyClass;
     public SizeMarshaller keySizeMarshaller;
     public SizedReader<K> keyReader;
     public DataAccess<K> keyDataAccess;
-
     /////////////////////////////////////////////////
     public boolean checksumEntries;
-
     /////////////////////////////////////////////////
     // Concurrency (number of segments), memory management and dependent fields
     public int actualSegments;
     public HashSplitting hashSplitting;
-
     public long chunkSize;
     public int maxChunksPerEntry;
     public long actualChunksPerSegmentTier;
-
-    /////////////////////////////////////////////////
-    // Precomputed offsets and sizes for fast Context init
-    int segmentHeaderSize;
-
     public int tierHashLookupValueBits;
     public int tierHashLookupKeyBits;
     public int tierHashLookupSlotSize;
     public long tierHashLookupCapacity;
     public long maxEntriesPerHashLookup;
-    long tierHashLookupInnerSize;
     public long tierHashLookupOuterSize;
-
     public long tierFreeListInnerSize;
     public long tierFreeListOuterSize;
-
-    long tierEntrySpaceInnerSize;
     public int tierEntrySpaceInnerOffset;
-    long tierEntrySpaceOuterSize;
-
     public long tierSize;
-
+    public long tiersInBulk;
+    public transient List<TierBulkData> tierBulkOffsets;
+    public transient long headerSize;
+    public transient long segmentHeadersOffset;
+    /////////////////////////////////////////////////
+    // Miscellaneous fields
+    public transient CompactOffHeapLinearHashTable hashLookup;
+    public transient Identity identity;
+    protected int log2TiersInBulk;
+    private Runnable preShutdownAction;
+    /////////////////////////////////////////////////
+    // Bytes Store (essentially, the base address) and serialization-dependent offsets
+    protected transient BytesStore bs;
+    /////////////////////////////////////////////////
+    // Precomputed offsets and sizes for fast Context init
+    int segmentHeaderSize;
+    long tierHashLookupInnerSize;
+    long tierEntrySpaceInnerSize;
+    long tierEntrySpaceOuterSize;
     long maxExtraTiers;
     long tierBulkSizeInBytes;
     long tierBulkInnerOffsetToTiers;
-    public long tiersInBulk;
-    protected int log2TiersInBulk;
-
+    transient long segmentsOffset;
+    /////////////////////////////////////////////////
+    private String dataFileVersion;
     /////////////////////////////////////////////////
     // Resources
     private transient File file;
     private transient RandomAccessFile raf;
-    private transient ChronicleHashResources resources;
-    private transient Cleaner cleaner;
-
-    /////////////////////////////////////////////////
-    // Bytes Store (essentially, the base address) and serialization-dependent offsets
-    protected transient BytesStore bs;
-
-    public static class TierBulkData {
-        public final BytesStore bytesStore;
-        public final long offset;
-
-        public TierBulkData(BytesStore bytesStore, long offset) {
-            this.bytesStore = bytesStore;
-            this.offset = offset;
-        }
-
-        public TierBulkData(TierBulkData data, long offset) {
-            this.bytesStore = data.bytesStore;
-            this.offset = offset;
-        }
-    }
-
-    public transient List<TierBulkData> tierBulkOffsets;
-
-    public transient long headerSize;
-    public transient long segmentHeadersOffset;
-    transient long segmentsOffset;
-
-    /////////////////////////////////////////////////
-    // Miscellaneous fields
-    public transient CompactOffHeapLinearHashTable hashLookup;
-
-    private transient VanillaGlobalMutableState globalMutableState;
-
-    /**
-     * {@link ChronicleHashCloseOnExitHook} needs to use {@code VanillaChronicleHash}es as
-     * WeakHashMap keys, but with identity comparison, not Map's equals() and hashCode().
-     */
-    public class Identity {
-        public VanillaChronicleHash hash() {
-            return VanillaChronicleHash.this;
-        }
-    }
-
-    public transient Identity identity;
 
     // --- End of instance fields ---
-
+    private transient ChronicleHashResources resources;
+    private transient Cleaner cleaner;
+    private transient VanillaGlobalMutableState globalMutableState;
 
     public VanillaChronicleHash(ChronicleMapBuilder<K, ?> builder) {
         // Version
@@ -237,12 +209,32 @@ public abstract class VanillaChronicleHash<K,
         tierBulkSizeInBytes = computeTierBulkBytesSize(tiersInBulk);
 
         checksumEntries = privateAPI.checksumEntries();
+
+        preShutdownAction = privateAPI.getPreShutdownAction();
+    }
+
+    public static IOException throwRecoveryOrReturnIOException(
+            File file, String message, boolean recover) {
+        message = "file=" + file + " " + message;
+        if (recover) {
+            throw new ChronicleHashRecoveryFailedException(message);
+        } else {
+            return new IOException(message);
+        }
+    }
+
+    private static long roundUpMapHeaderSize(long headerSize) {
+        return CACHE_LINES.align(headerSize, BYTES);
     }
 
     @Override
     public void readMarshallable(@NotNull WireIn wire) {
         readMarshallableFields(wire);
         initTransients();
+    }
+
+    public Runnable getPreShutdownAction() {
+        return preShutdownAction;
     }
 
     protected void readMarshallableFields(@NotNull WireIn wireIn) {
@@ -254,9 +246,9 @@ public abstract class VanillaChronicleHash<K,
         createdOrInMemory = false;
 
         keyClass = wireIn.read(() -> "keyClass").typeLiteral();
-        keySizeMarshaller = wireIn.read(() -> "keySizeMarshaller").typedMarshallable();
-        keyReader = wireIn.read(() -> "keyReader").typedMarshallable();
-        keyDataAccess = wireIn.read(() -> "keyDataAccess").typedMarshallable();
+        keySizeMarshaller = wireIn.read(() -> "keySizeMarshaller").object(SizeMarshaller.class);
+        keyReader = wireIn.read(() -> "keyReader").object(SizedReader.class);
+        keyDataAccess = wireIn.read(() -> "keyDataAccess").object(DataAccess.class);
 
         checksumEntries = wireIn.read(() -> "checksumEntries").bool();
 
@@ -298,14 +290,14 @@ public abstract class VanillaChronicleHash<K,
         wireOut.write(() -> "dataFileVersion").text(dataFileVersion);
 
         wireOut.write(() -> "keyClass").typeLiteral(keyClass);
-        wireOut.write(() -> "keySizeMarshaller").typedMarshallable(keySizeMarshaller);
-        wireOut.write(() -> "keyReader").typedMarshallable(keyReader);
-        wireOut.write(() -> "keyDataAccess").typedMarshallable(keyDataAccess);
+        wireOut.write(() -> "keySizeMarshaller").object(keySizeMarshaller);
+        wireOut.write(() -> "keyReader").object(keyReader);
+        wireOut.write(() -> "keyDataAccess").object(keyDataAccess);
 
         wireOut.write(() -> "checksumEntries").bool(checksumEntries);
 
         wireOut.write(() -> "actualSegments").int32(actualSegments);
-        wireOut.write(() -> "hashSplitting").typedMarshallable(hashSplitting);
+        wireOut.write(() -> "hashSplitting").object(hashSplitting);
 
         wireOut.write(() -> "chunkSize").int64(chunkSize);
         wireOut.write(() -> "maxChunksPerEntry").int32(maxChunksPerEntry);
@@ -389,13 +381,16 @@ public abstract class VanillaChronicleHash<K,
     private void initOwnTransients() {
         globalMutableState = createGlobalMutableState();
         tierBulkOffsets = new ArrayList<>();
-        if (tierHashLookupSlotSize == 4) {
-            hashLookup = new IntCompactOffHeapLinearHashTable(this);
-        } else if (tierHashLookupSlotSize == 8) {
-            hashLookup = new LongCompactOffHeapLinearHashTable(this);
-        } else {
-            throw new AssertionError("hash lookup slot size could be 4 or 8, " +
-                    tierHashLookupSlotSize + " observed");
+        switch (tierHashLookupSlotSize) {
+            case 4:
+                hashLookup = new IntCompactOffHeapLinearHashTable(this);
+                break;
+            case 8:
+                hashLookup = new LongCompactOffHeapLinearHashTable(this);
+                break;
+            default:
+                throw new AssertionError("hash lookup slot size could be 4 or 8, " +
+                        tierHashLookupSlotSize + " observed");
         }
         identity = new Identity();
     }
@@ -425,28 +420,13 @@ public abstract class VanillaChronicleHash<K,
         }
     }
 
-    public static IOException throwRecoveryOrReturnIOException(
-            File file, String message, boolean recover) {
-        message = "file=" + file + " " + message;
-        if (recover) {
-            throw new ChronicleHashRecoveryFailedException(message);
-        } else {
-            return new IOException(message);
-        }
-    }
-
-    private static long roundUpMapHeaderSize(long headerSize) {
-        return CACHE_LINES.align(headerSize, BYTES);
-    }
-
-    public final void createInMemoryStoreAndSegments(ChronicleHashResources resources)
-            throws IOException {
+    public final void createInMemoryStoreAndSegments(ChronicleHashResources resources) {
         this.resources = resources;
         BytesStore bytesStore = nativeBytesStoreWithFixedCapacity(sizeInBytesWithoutTiers());
         createStoreAndSegments(bytesStore);
     }
 
-    private void createStoreAndSegments(BytesStore bytesStore) throws IOException {
+    private void createStoreAndSegments(BytesStore bytesStore) {
         initBytesStoreAndHeadersViews(bytesStore);
         initOffsetsAndBulks();
     }
@@ -492,7 +472,7 @@ public abstract class VanillaChronicleHash<K,
     }
 
     public void registerCleaner() {
-        this.cleaner = Cleaner.create(this, resources);
+        this.cleaner = CleanerUtils.createCleaner(this, resources);
     }
 
     public void addToOnExitHook() {
@@ -505,7 +485,9 @@ public abstract class VanillaChronicleHash<K,
         createStoreAndSegments(map(dataStoreSize(), 0));
     }
 
-    public final void basicRecover(ChronicleHashResources resources)
+    public final void basicRecover(
+            ChronicleHashResources resources, ChronicleHashCorruption.Listener corruptionListener,
+            ChronicleHashCorruptionImpl corruption)
             throws IOException {
         this.resources = resources;
         long segmentHeadersOffset = globalMutableState().getSegmentHeadersOffset();
@@ -525,45 +507,62 @@ public abstract class VanillaChronicleHash<K,
         }
         initBytesStoreAndHeadersViews(map(dataStoreSize, 0));
 
-        resetGlobalMutableStateLock();
-        recoverAllocatedExtraTierBulks(allocatedExtraTierBulks);
-        recoverSegmentHeadersOffset(segmentHeadersOffset);
-        recoverDataStoreSize(dataStoreSize);
+        resetGlobalMutableStateLock(corruptionListener, corruption);
+        recoverAllocatedExtraTierBulks(allocatedExtraTierBulks, corruptionListener, corruption);
+        recoverSegmentHeadersOffset(segmentHeadersOffset, corruptionListener, corruption);
+        recoverDataStoreSize(dataStoreSize, corruptionListener, corruption);
         initOffsetsAndBulks();
     }
 
-    private void resetGlobalMutableStateLock() {
+    private void resetGlobalMutableStateLock(
+            ChronicleHashCorruption.Listener corruptionListener,
+            ChronicleHashCorruptionImpl corruption) {
         long lockAddr = globalMutableStateAddress() + GLOBAL_MUTABLE_STATE_LOCK_OFFSET;
         LockingStrategy lockingStrategy = globalMutableStateLockingStrategy;
         long lockState = lockingStrategy.getState(nativeAccess(), null, lockAddr);
         if (lockState != lockingStrategy.resetState()) {
-            LOG.error("global mutable state lock of map at {} is not clear: {}",
-                    file, lockingStrategy.toString(lockState));
+            report(corruptionListener, corruption, -1, () ->
+                    format("global mutable state lock of map at {} is not clear: {}",
+                            file, lockingStrategy.toString(lockState))
+            );
             lockingStrategy.reset(nativeAccess(), null, lockAddr);
         }
     }
 
-    private void recoverAllocatedExtraTierBulks(int allocatedExtraTierBulks) {
+    private void recoverAllocatedExtraTierBulks(
+            int allocatedExtraTierBulks, ChronicleHashCorruption.Listener corruptionListener,
+            ChronicleHashCorruptionImpl corruption) {
         if (globalMutableState.getAllocatedExtraTierBulks() != allocatedExtraTierBulks) {
-            LOG.error("allocated extra tier bulks counter corrupted, or the map file {} " +
-                    "is truncated. stored: {}, should be: {}", file,
-                    globalMutableState.getAllocatedExtraTierBulks(), allocatedExtraTierBulks);
+            report(corruptionListener, corruption, -1, () ->
+                    format("allocated extra tier bulks counter corrupted, or the map file {} " +
+                                    "is truncated. stored: {}, should be: {}",
+                            file, globalMutableState.getAllocatedExtraTierBulks(),
+                            allocatedExtraTierBulks)
+            );
             globalMutableState.setAllocatedExtraTierBulks(allocatedExtraTierBulks);
         }
     }
 
-    private void recoverSegmentHeadersOffset(long segmentHeadersOffset) {
+    private void recoverSegmentHeadersOffset(
+            long segmentHeadersOffset, ChronicleHashCorruption.Listener corruptionListener,
+            ChronicleHashCorruptionImpl corruption) {
         if (globalMutableState.getSegmentHeadersOffset() != segmentHeadersOffset) {
-            LOG.error("segment headers offset of map at {} corrupted. stored: {}, should be: {}",
-                    file, globalMutableState.getSegmentHeadersOffset(), segmentHeadersOffset);
+            report(corruptionListener, corruption, -1, () ->
+                    format("segment headers offset of map at {} corrupted. stored: {}, should be: {}",
+                            file, globalMutableState.getSegmentHeadersOffset(), segmentHeadersOffset)
+            );
             globalMutableState.setSegmentHeadersOffset(segmentHeadersOffset);
         }
     }
 
-    private void recoverDataStoreSize(long dataStoreSize) {
+    private void recoverDataStoreSize(
+            long dataStoreSize, ChronicleHashCorruption.Listener corruptionListener,
+            ChronicleHashCorruptionImpl corruption) {
         if (globalMutableState.getDataStoreSize() != dataStoreSize) {
-            LOG.error("data store size of map at {} corrupted. stored: {}, should be: {}",
-                    file, globalMutableState.getDataStoreSize(), dataStoreSize);
+            report(corruptionListener, corruption, -1, () ->
+                    format("data store size of map at {} corrupted. stored: {}, should be: {}",
+                            file, globalMutableState.getDataStoreSize(), dataStoreSize)
+            );
             globalMutableState.setDataStoreSize(dataStoreSize);
         }
     }
@@ -689,7 +688,7 @@ public abstract class VanillaChronicleHash<K,
     }
 
     public long bsAddress() {
-        return bs.address(0);
+        return bs.addressForRead(0);
     }
 
     public final long segmentBaseAddr(int segmentIndex) {
@@ -704,8 +703,10 @@ public abstract class VanillaChronicleHash<K,
         // TODO optimize for the case when chunkSize is power of 2, that is default (and often) now
         if (sizeInBytes <= chunkSize)
             return 1;
+
+        // todo: we have added padding to prevent the chunks getting corrupted see - net.openhft.chronicle.map.MissSizedMapsTest
+
         // int division is MUCH faster than long on Intel CPUs
-        sizeInBytes -= 1L;
         if (sizeInBytes <= Integer.MAX_VALUE)
             return (((int) sizeInBytes) / (int) chunkSize) + 1;
         return (int) (sizeInBytes / chunkSize) + 1;
@@ -720,24 +721,6 @@ public abstract class VanillaChronicleHash<K,
     public int segments() {
         return actualSegments;
     }
-
-    /**
-     * Global mutable state lock doesn't yet need read-write levels and waits;
-     * Used the same locking strategy as in segment locks
-     * (VanillaReadWriteUpdateWithWaitsLockingStrategy) in order to simplify Chronicle Map
-     * specification (having only one kind of locks to specify and implement).
-     */
-    static final LockingStrategy globalMutableStateLockingStrategy =
-            VanillaReadWriteUpdateWithWaitsLockingStrategy.instance();
-    static final TryAcquireOperation<LockingStrategy> globalMutableStateLockTryAcquireOperation =
-            TryAcquireOperations.lock();
-    static final
-    AcquisitionStrategy<LockingStrategy, RuntimeException>
-            globalMutableStateLockAcquisitionStrategy =
-            AcquisitionStrategies.spinLoopOrFail(2, TimeUnit.SECONDS);
-
-    private static final long GLOBAL_MUTABLE_STATE_LOCK_OFFSET = 0L;
-    private static final long GLOBAL_MUTABLE_STATE_VALUE_OFFSET = 8L;
 
     private long globalMutableStateAddress() {
         return bsAddress() + headerSize;
@@ -755,7 +738,9 @@ public abstract class VanillaChronicleHash<K,
                 globalMutableStateAddress() + GLOBAL_MUTABLE_STATE_LOCK_OFFSET);
     }
 
-    /** For tests */
+    /**
+     * For tests
+     */
     public boolean hasExtraTierBulks() {
         return globalMutableState.getAllocatedExtraTierBulks() > 0;
     }
@@ -801,7 +786,7 @@ public abstract class VanillaChronicleHash<K,
             globalMutableState.setExtraTiersInUse(tiersInUse + 1);
             BytesStore allocatedTierBytes = tierBytesStore(firstFreeTierIndex);
             long allocatedTierOffset = tierBytesOffset(firstFreeTierIndex);
-            long tierBaseAddr = allocatedTierBytes.address(0) + allocatedTierOffset;
+            long tierBaseAddr = allocatedTierBytes.addressForRead(0) + allocatedTierOffset;
             long tierCountersAreaAddr = tierBaseAddr + tierHashLookupOuterSize;
             long nextFreeTierIndex = TierCountersArea.nextTierIndex(tierCountersAreaAddr);
             globalMutableState.setFirstFreeTierIndex(nextFreeTierIndex);
@@ -829,8 +814,8 @@ public abstract class VanillaChronicleHash<K,
 
         // see HCOLL-397
         if (persisted()) {
-            long address = tierBytesStore.address(firstTierOffset - tierBulkInnerOffsetToTiers);
-            long endAddress = tierBytesStore.address(tierBytesOffset(lastTierIndex)) + tierSize;
+            long address = tierBytesStore.addressForRead(firstTierOffset - tierBulkInnerOffsetToTiers);
+            long endAddress = tierBytesStore.addressForRead(tierBytesOffset(lastTierIndex)) + tierSize;
             long length = endAddress - address;
             msync(address, length);
         }
@@ -868,7 +853,7 @@ public abstract class VanillaChronicleHash<K,
             zeroOutNewlyMappedTier(tierBytesStore, tierOffset);
             if (tierIndex < lastTierIndex) {
                 long tierCountersAreaOffset = tierOffset + tierHashLookupOuterSize;
-                TierCountersArea.nextTierIndex(tierBytesStore.address(0) + tierCountersAreaOffset,
+                TierCountersArea.nextTierIndex(tierBytesStore.addressForRead(0) + tierCountersAreaOffset,
                         tierIndex + 1);
             }
         }
@@ -925,7 +910,7 @@ public abstract class VanillaChronicleHash<K,
     }
 
     protected long tierAddr(TierBulkData tierBulkData, long tierIndexOffsetWithinBulk) {
-        return tierBulkData.bytesStore.address(0) + tierBulkData.offset +
+        return tierBulkData.bytesStore.addressForRead(0) + tierBulkData.offset +
                 tierBulkInnerOffsetToTiers + tierIndexOffsetWithinBulk * tierSize;
     }
 
@@ -981,6 +966,16 @@ public abstract class VanillaChronicleHash<K,
             // globalMutableStateLock), or on map creation, when race condition should be excluded
             // by self-bootstrapping header spec
             raf.setLength(minFileSize);
+
+            // RandomAccessFile#setLength() only calls ftruncate,
+            // which will not preallocate space on XFS filesystem of Linux.
+            // And writing that file will create a sparse file with a large number of extents.
+            // This kind of fragmented file may hang the program and cause dmesg reports
+            // "XFS: ... possible memory allocation deadlock size ... in kmem_alloc (mode:0x250)".
+            // We can fix this by trying calling posix_fallocate to preallocate the space.
+            if (OS.isLinux()) {
+                PosixFallocate.fallocate(raf.getFD(), 0, minFileSize);
+            }
         }
         long address = OS.map(fileChannel, READ_WRITE, mappingOffsetInFile, mapSize);
         resources.addMemoryResource(address, mapSize);
@@ -1023,8 +1018,35 @@ public abstract class VanillaChronicleHash<K,
         resources.addCloseable(closeable);
     }
 
-    /** For testing only */
+    /**
+     * For testing only
+     */
     public List<WeakReference<ContextHolder>> allContexts() {
         return Collections.unmodifiableList(resources.contexts());
+    }
+
+    public static class TierBulkData {
+        public final BytesStore bytesStore;
+        public final long offset;
+
+        public TierBulkData(BytesStore bytesStore, long offset) {
+            this.bytesStore = bytesStore;
+            this.offset = offset;
+        }
+
+        public TierBulkData(TierBulkData data, long offset) {
+            this.bytesStore = data.bytesStore;
+            this.offset = offset;
+        }
+    }
+
+    /**
+     * {@link ChronicleHashCloseOnExitHook} needs to use {@code VanillaChronicleHash}es as
+     * WeakHashMap keys, but with identity comparison, not Map's equals() and hashCode().
+     */
+    public class Identity {
+        public VanillaChronicleHash hash() {
+            return VanillaChronicleHash.this;
+        }
     }
 }

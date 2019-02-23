@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.hash.impl.stage.entry;
@@ -49,21 +48,74 @@ import static net.openhft.chronicle.hash.impl.VanillaChronicleHash.TIER_COUNTERS
 @Staged
 public abstract class SegmentStages implements SegmentLock, LocksInterface {
 
-    @StageRef LogHolder log;
-    @StageRef Chaining chaining;
-    @StageRef public VanillaChronicleHashHolder<?> hh;
-    @StageRef public CheckOnEachPublicOperation checkOnEachPublicOperation;
-
+    @Stage("Segment")
+    public final PointerBytesStore segmentBS = new PointerBytesStore();
+    @Stage("Segment")
+    public final Bytes segmentBytes = new VanillaBytes(segmentBS);
+    @StageRef
+    public VanillaChronicleHashHolder<?> hh;
+    @Stage("Segment")
+    public final ReusableBitSet freeList = new ReusableBitSet(
+            new SingleThreadedFlatBitSetFrame(LONGS.align(hh.h().actualChunksPerSegmentTier, BITS)),
+            Access.nativeAccess(), null, 0);
+    @StageRef
+    public CheckOnEachPublicOperation checkOnEachPublicOperation;
     public int segmentIndex = -1;
-    
+    @Stage("SegmentHeader")
+    public long segmentHeaderAddress;
+    @Stage("SegmentHeader")
+    public SegmentHeader segmentHeader = null;
+    @Stage("Locks")
+    public LocksInterface rootContextLockedOnThisSegment = null;
+    /**
+     * See the ChMap Ops spec, considerations of nested same-thread concurrent contexts.
+     * Once context enters the segment, and observes concurrent same-thread context,
+     * it sets nestedContextsLockedOnSameSegment = true for itself and that concurrent context.
+     * This flag is not dropped on exit of one of these contexts, because between calls of
+     * this context, nested one could be initialized, does some changes that break our thread-local
+     * assumptions _and exit_, that is why on exit concurrent context should remain "dirty".
+     */
+    @Stage("Locks")
+    public boolean nestedContextsLockedOnSameSegment;
+    @Stage("Locks")
+    public int latestSameThreadSegmentModCount;
+    @Stage("Locks")
+    public int contextModCount;
+    @StageRef
+    public ReadLock innerReadLock;
+    @StageRef
+    public UpdateLock innerUpdateLock;
+    @StageRef
+    public WriteLock innerWriteLock;
+    @Stage("SegmentTier")
+    public int tier = -1;
+    @Stage("SegmentTier")
+    public long tierIndex;
+    @Stage("SegmentTier")
+    public long tierBaseAddr;
+    @Stage("Segment")
+    public long entrySpaceOffset = 0;
+    @StageRef
+    LogHolder log;
+    @StageRef
+    Chaining chaining;
+    // chain
+    @Stage("Locks")
+    LocksInterface nextNode;
+    @Stage("Locks")
+    LocalLockState localLockState;
+    @Stage("Locks")
+    int totalReadLockCount;
+    @Stage("Locks")
+    int totalUpdateLockCount;
+    @Stage("Locks")
+    int totalWriteLockCount;
+
     public void initSegmentIndex(int segmentIndex) {
         this.segmentIndex = segmentIndex;
     }
 
     public abstract boolean segmentIndexInit();
-
-    @Stage("SegmentHeader") public long segmentHeaderAddress;
-    @Stage("SegmentHeader") public SegmentHeader segmentHeader = null;
 
     private void initSegmentHeader() {
         segmentHeaderAddress = hh.h().segmentHeaderAddress(segmentIndex);
@@ -145,24 +197,11 @@ public abstract class SegmentStages implements SegmentLock, LocksInterface {
         return size;
     }
 
-    @Stage("Locks") public LocksInterface rootContextLockedOnThisSegment = null;
-    /**
-     * See the ChMap Ops spec, considerations of nested same-thread concurrent contexts.
-     * Once context enters the segment, and observes concurrent same-thread context,
-     * it sets nestedContextsLockedOnSameSegment = true for itself and that concurrent context.
-     * This flag is not dropped on exit of one of these contexts, because between calls of
-     * this context, nested one could be initialized, does some changes that break our thread-local
-     * assumptions _and exit_, that is why on exit concurrent context should remain "dirty".
-     */
-    @Stage("Locks") public boolean nestedContextsLockedOnSameSegment;
-
     @Override
     @Stage("Locks")
     public void setNestedContextsLockedOnSameSegment(boolean nestedContextsLockedOnSameSegment) {
         this.nestedContextsLockedOnSameSegment = nestedContextsLockedOnSameSegment;
     }
-
-    @Stage("Locks") public int latestSameThreadSegmentModCount;
 
     @Override
     @Stage("Locks")
@@ -170,27 +209,17 @@ public abstract class SegmentStages implements SegmentLock, LocksInterface {
         return this.latestSameThreadSegmentModCount += change;
     }
 
-    @Stage("Locks") public int contextModCount;
-
     @Stage("Locks")
     public void incrementModCount() {
         contextModCount =
                 rootContextLockedOnThisSegment.changeAndGetLatestSameThreadSegmentModCount(1);
     }
 
-    // chain
-    @Stage("Locks") LocksInterface nextNode;
-
     @Override
     @Stage("Locks")
     public void setNextNode(LocksInterface nextNode) {
         this.nextNode = nextNode;
     }
-
-    @Stage("Locks") LocalLockState localLockState;
-    @Stage("Locks") int totalReadLockCount;
-    @Stage("Locks") int totalUpdateLockCount;
-    @Stage("Locks") int totalWriteLockCount;
 
     @Stage("Locks")
     public boolean readZero() {
@@ -509,10 +538,6 @@ public abstract class SegmentStages implements SegmentLock, LocksInterface {
         return s;
     }
 
-    @StageRef public ReadLock innerReadLock;
-    @StageRef public UpdateLock innerUpdateLock;
-    @StageRef public WriteLock innerWriteLock;
-
     @NotNull
     @Override
     public InterProcessLock readLock() {
@@ -533,10 +558,6 @@ public abstract class SegmentStages implements SegmentLock, LocksInterface {
         checkOnEachPublicOperation.checkOnEachPublicOperation();
         return innerWriteLock;
     }
-
-    @Stage("SegmentTier") public int tier = -1;
-    @Stage("SegmentTier") public long tierIndex;
-    @Stage("SegmentTier") public long tierBaseAddr;
 
     public abstract boolean segmentTierInit();
 
@@ -617,13 +638,6 @@ public abstract class SegmentStages implements SegmentLock, LocksInterface {
             prevTier();
         }
     }
-    
-    @Stage("Segment") public final PointerBytesStore segmentBS = new PointerBytesStore();
-    @Stage("Segment") public final Bytes segmentBytes = new VanillaBytes(segmentBS);
-    @Stage("Segment") public final ReusableBitSet freeList = new ReusableBitSet(
-            new SingleThreadedFlatBitSetFrame(LONGS.align(hh.h().actualChunksPerSegmentTier, BITS)),
-            Access.nativeAccess(), null, 0);
-    @Stage("Segment") public long entrySpaceOffset = 0;
 
     boolean segmentInit() {
         return entrySpaceOffset > 0;
@@ -654,7 +668,7 @@ public abstract class SegmentStages implements SegmentLock, LocksInterface {
         segmentBytes.readPosition(0);
         return segmentBytes;
     }
-    
+
     void closeSegment() {
         entrySpaceOffset = 0;
     }

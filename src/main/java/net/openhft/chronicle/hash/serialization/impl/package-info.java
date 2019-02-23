@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 /**
@@ -22,17 +21,17 @@
  * net.openhft.chronicle.hash.serialization.impl.SerializationBuilder} and it's use in {@link
  * net.openhft.chronicle.map.ChronicleMapBuilder}. That is why these classes are put into the
  * separate package (this package) and excluded from the generated Javadocs, to reduce noise.
- *
+ * <p>
  * <p>The remaining 5% of cases when these classes might be useful in the user code -- overriding
  * with different {@link
  * net.openhft.chronicle.hash.serialization.impl.InstanceCreatingMarshaller#createInstance()} logic,
  * when the default strategy (call of the default constructor) doesn't work.
- *
+ * <p>
  * <p>Another remaining 5% of cases: configuration of complex marshallers with sub-marshallers, see
  * {@link net.openhft.chronicle.hash.serialization.ListMarshaller}, {@link
  * net.openhft.chronicle.hash.serialization.SetMarshaller} and {@link
  * net.openhft.chronicle.hash.serialization.MapMarshaller} for some examples.
- *
+ * <p>
  * <p>Classes in this package are undocumented and not guaranteed to stay compatible between
  * Chronicle Map versions; refer to the source code and use on your own risk.
  */

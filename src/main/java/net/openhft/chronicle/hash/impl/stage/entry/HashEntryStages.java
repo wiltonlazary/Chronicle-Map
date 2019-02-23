@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.hash.impl.stage.entry;
@@ -37,20 +36,35 @@ import static net.openhft.chronicle.algo.bytes.Access.nativeAccess;
 @Staged
 public abstract class HashEntryStages<K> implements HashEntry<K>, ChecksumEntry {
 
-    @StageRef public VanillaChronicleHashHolder<?> hh;
-    @StageRef public SegmentStages s;
-    @StageRef public CheckOnEachPublicOperation checkOnEachPublicOperation;
-    @StageRef public HashLookupPos hlp;
+    @StageRef
+    public VanillaChronicleHashHolder<?> hh;
+    @StageRef
+    public SegmentStages s;
+    @StageRef
+    public CheckOnEachPublicOperation checkOnEachPublicOperation;
+    @StageRef
+    public HashLookupPos hlp;
 
     public long pos = -1;
+    @Stage("EntryOffset")
+    public long keySizeOffset = -1;
+    public long keySize = -1;
+    public long keyOffset = -1;
+    public boolean delayedUpdateChecksum = false;
+    @StageRef
+    public EntryKeyBytesData<K> entryKey;
+    @Stage("EntrySizeInChunks")
+    public int entrySizeInChunks = 0;
+    @StageRef
+    HashEntryChecksumStrategy hashEntryChecksumStrategy;
+    public final ChecksumStrategy checksumStrategy = hh.h().checksumEntries ?
+            hashEntryChecksumStrategy : NoChecksumStrategy.INSTANCE;
 
     public void initPos(long pos) {
         this.pos = pos;
     }
 
     public abstract void closePos();
-
-    @Stage("EntryOffset") public long keySizeOffset = -1;
 
     public abstract boolean entryOffsetInit();
 
@@ -64,15 +78,11 @@ public abstract class HashEntryStages<K> implements HashEntry<K>, ChecksumEntry 
 
     public abstract void closeEntryOffset();
 
-    public long keySize = -1;
-
     public void initKeySize(long keySize) {
         this.keySize = keySize;
     }
 
     public abstract void closeKeySize();
-
-    public long keyOffset = -1;
 
     public void initKeyOffset(long keyOffset) {
         this.keyOffset = keyOffset;
@@ -134,12 +144,6 @@ public abstract class HashEntryStages<K> implements HashEntry<K>, ChecksumEntry 
         return keyEnd();
     }
 
-    @StageRef HashEntryChecksumStrategy hashEntryChecksumStrategy;
-    public final ChecksumStrategy checksumStrategy = hh.h().checksumEntries ?
-            hashEntryChecksumStrategy : NoChecksumStrategy.INSTANCE;
-
-    public boolean delayedUpdateChecksum = false;
-
     public void initDelayedUpdateChecksum(boolean delayedUpdateChecksum) {
         // makes delayedUpdateChecksum dependent on keySizeOffset and Locks stages, to trigger
         // delayedUpdateChecksum close on these stages' close
@@ -186,16 +190,12 @@ public abstract class HashEntryStages<K> implements HashEntry<K>, ChecksumEntry 
         return checksumStrategy.extraEntryBytes() + entryEnd() - keySizeOffset;
     }
 
-    @StageRef public EntryKeyBytesData<K> entryKey;
-
     @NotNull
     @Override
     public Data<K> key() {
         checkOnEachPublicOperation.checkOnEachPublicOperation();
         return entryKey;
     }
-
-    @Stage("EntrySizeInChunks") public int entrySizeInChunks = 0;
 
     void initEntrySizeInChunks() {
         entrySizeInChunks = hh.h().inChunks(entrySize());
@@ -204,7 +204,7 @@ public abstract class HashEntryStages<K> implements HashEntry<K>, ChecksumEntry 
     public void initEntrySizeInChunks(int actuallyUsedChunks) {
         entrySizeInChunks = actuallyUsedChunks;
     }
-    
+
     public void innerRemoveEntryExceptHashLookupUpdate() {
         s.free(pos, entrySizeInChunks);
         s.incrementModCount();

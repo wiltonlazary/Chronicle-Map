@@ -1,18 +1,17 @@
 /*
- *      Copyright (C) 2012, 2016  higherfrequencytrading.com
- *      Copyright (C) 2016 Roman Leventov
+ * Copyright 2012-2018 Chronicle Map Contributors
  *
- *      This program is free software: you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      You should have received a copy of the GNU Lesser General Public License
- *      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.hash.serialization;
@@ -29,7 +28,7 @@ import org.jetbrains.annotations.Nullable;
  * Deserializer of objects from bytes, pairing {@link SizedWriter}, i. e. assuming the length
  * of the serialized form isn't written in the beginning of the serialized form itself, but managed
  * by {@link ChronicleHash} implementation and passed to the reading methods.
- *
+ * <p>
  * <p>Read <a href="https://github.com/OpenHFT/Chronicle-Map#sizedwriter-and-sizedreader">{@code
  * SizedWriter} and {@code SizedReader}</a>,
  * <a href="https://github.com/OpenHFT/Chronicle-Map#dataaccess-and-sizedreader">{@link DataAccess}
@@ -53,13 +52,13 @@ public interface SizedReader<T> extends Marshallable {
      * given {@code using} object, i. e. to read the deserialized data into the given object. If it
      * is possible, this objects then returned from this method. If it is impossible for any reason,
      * a new object should be created and returned. The given {@code using} object could be {@code
-     * null}, in this case this method, of cause, should create a new object.
-     *
+     * null}, in this case read() should always create a new object.
+     * <p>
      * <p>This method should increment the position in the given {@code Bytes} by the given {@code
      * size}.
      *
-     * @param in the {@code Bytes} to read the object from
-     * @param size the size of the serialized form of the returned object
+     * @param in    the {@code Bytes} to read the object from
+     * @param size  the size of the serialized form of the returned object
      * @param using the object to read the deserialized data into, could be {@code null}
      * @return the object read from the bytes, either reused or newly created
      */
