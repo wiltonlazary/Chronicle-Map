@@ -4,33 +4,65 @@ import net.openhft.chronicle.hash.serialization.SizeMarshaller;
 import org.jetbrains.annotations.NotNull;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Random;
 
 import static java.nio.charset.StandardCharsets.ISO_8859_1;
 
+@RunWith(Parameterized.class)
 public class ValueAlignmentRelocationTest {
+
+    private final boolean persisted;
+    private final int alignment;
+    private final int chunk;
+
+    public ValueAlignmentRelocationTest(String name, boolean persisted, int alignment, int chunk) {
+        this.persisted = persisted;
+        this.alignment = alignment;
+        this.chunk = chunk;
+    }
+
+    @Parameterized.Parameters(name = "{0}")
+    public static Collection<Object[]> data() {
+        return Arrays.asList(new Object[][]{
+                {"Volatile a=1, c=1", false, 1, 1},
+                {"Volatile a=1, c=2", false, 1, 2},
+                {"Volatile a=4, c=4", false, 4, 4},
+                {"Volatile a=4, c=8", false, 4, 8},
+                {"Persisted a=1, c=1", true, 1, 1},
+                {"Persisted a=4, c=8", true, 4, 8}
+        });
+    }
+
+    @NotNull
+    private static String toString(final byte[] value) {
+        return new String(value, 0, 0, value.length);
+    }
 
     @Test
     public void testValueAlignmentRelocation() throws IOException {
 
-        File file = Files.createTempFile("test", "cm3").toFile();
+        File file = Files.createTempFile("test", ".cm3").toFile();
+        file.deleteOnExit();
 
-        ChronicleMap<byte[], byte[]> map = ChronicleMapBuilder
+        ChronicleMapBuilder<byte[], byte[]> builder = ChronicleMapBuilder
                 .of(byte[].class, byte[].class)
                 .averageKeySize(5)
                 .averageValueSize(5)
                 .keySizeMarshaller(SizeMarshaller.stopBit())
                 .valueSizeMarshaller(SizeMarshaller.stopBit())
-                .entryAndValueOffsetAlignment(8)
+                .entryAndValueOffsetAlignment(alignment)
                 .actualSegments(1)
-                .actualChunkSize(2)
-                .entries(10)
-                .createPersistedTo(file);
+                .actualChunkSize(chunk)
+                .entries(10);
+        ChronicleMap<byte[], byte[]> map = persisted ? builder.createPersistedTo(file) : builder.create();
         Random r = new Random(0);
 
         for (int firstKeySize = 1; firstKeySize < 10; firstKeySize++) {
@@ -56,7 +88,8 @@ public class ValueAlignmentRelocationTest {
                     map.put(new byte[]{(byte) i}, new byte[]{(byte) i});
                     map.put(("Hello" + i).getBytes(), "world".getBytes());
                 }
-                System.out.println("firstKeySize=" + firstKeySize + ",second key=" + secondKeySize);
+//                System.out.println("firstKeySize=" + firstKeySize + ",second key=" + secondKeySize);
+                Assert.assertEquals(Arrays.toString(map.get(firstKey)), Arrays.toString(thirdValue));
                 Assert.assertTrue(Arrays.equals(map.get(firstKey), thirdValue));
             }
         }
@@ -64,42 +97,51 @@ public class ValueAlignmentRelocationTest {
 
     @Test
     public void testValueAlignmentRelocationNoRandomTest() throws IOException {
-        File file = Files.createTempFile("test", "cm3").toFile();
+        File file = Files.createTempFile("test", ".cm3").toFile();
+        file.deleteOnExit();
 
-        ChronicleMap<byte[], byte[]> map = ChronicleMapBuilder
+        ChronicleMapBuilder<byte[], byte[]> builder = ChronicleMapBuilder
                 .of(byte[].class, byte[].class)
                 .averageKeySize(5)
                 .averageValueSize(5)
                 .keySizeMarshaller(SizeMarshaller.stopBit())
                 .valueSizeMarshaller(SizeMarshaller.stopBit())
-                .entryAndValueOffsetAlignment(8)
+                .entryAndValueOffsetAlignment(alignment)
                 .actualSegments(1)
-                .actualChunkSize(2)
-                .entries(10)
-                .createPersistedTo(file);
+                .actualChunkSize(chunk)
+                .entries(10);
+        ChronicleMap<byte[], byte[]> map = persisted ? builder.createPersistedTo(file) : builder.create();
 
-        byte[] firstKey = "austi".getBytes(ISO_8859_1);
-        byte[] firstValue = "12345678".getBytes(ISO_8859_1);
+        for (int k = 1; k <= 16; k++) {
+            for (int i = 1; i < 10; i++) {
+                for (int j = i + 1; j <= i + 10; j++) {
+                    map.clear();
 
-        byte[] secondKey = "h".getBytes(ISO_8859_1);
-        byte[] secondValue = "a".getBytes(ISO_8859_1);
+                    byte[] _austi = "abcdefghijklmnopqrstuvwxyz".substring(0, k).getBytes(ISO_8859_1);
+                    byte[] _shorter = "1234567890".substring(0, i).getBytes(ISO_8859_1);
+                    byte[] _h = "h".getBytes(ISO_8859_1);
+                    byte[] _a = "a".getBytes(ISO_8859_1);
+                    String expected = "abcdefghijklmnopqrstuvwxyz".substring(0, j);
+                    byte[] _longer = expected.getBytes(ISO_8859_1);
+                    byte[] _Hello = "Hello".getBytes(ISO_8859_1);
+                    byte[] _world = "world".getBytes(ISO_8859_1);
 
-        map.put(firstKey, firstValue);
-        map.put(secondKey, secondValue);
+                    map.put(_austi, _shorter);
+                    map.put(_h, _a);
 
-        byte[] thirdValue = "1234567890123456".getBytes(ISO_8859_1);
-        map.put(firstKey, thirdValue);
-        map.put(("Hello").getBytes(ISO_8859_1), "world".getBytes(ISO_8859_1));
+                    map.put(_austi, _longer);
+                    String actual0 = toString(map.get(_austi));
+                    Assert.assertEquals(expected, actual0);
 
-        String actual = toString(map.get(firstKey));
-        String expected = toString(thirdValue);
+                    map.put(_Hello, _world);
+                    String actual = toString(map.get(_austi));
 
-        Assert.assertEquals(expected, actual);
+                    if (expected.equals(actual))
+                        Assert.assertEquals(expected, actual);
+                    else
+                        System.out.println("k= " + k + ", i= " + i + ", j=" + j);
+                }
+            }
+        }
     }
-
-    @NotNull
-    private String toString(final byte[] value) {
-        return new String(value, 0, 0, value.length);
-    }
-
 }

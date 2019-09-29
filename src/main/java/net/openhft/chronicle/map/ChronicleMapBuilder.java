@@ -167,7 +167,7 @@ public final class ChronicleMapBuilder<K, V> implements
     /**
      * Default timeout is 1 minute. Even loopback tests converge often in the course of seconds,
      * let alone WAN replication over many nodes might take tens of seconds.
-     * <p/>
+     * <p>
      * TODO review
      */
     long cleanupTimeout = 1;
@@ -181,6 +181,7 @@ public final class ChronicleMapBuilder<K, V> implements
     MapEntryOperations<K, V, ?> entryOperations = mapEntryOperations();
     MapRemoteOperations<K, V, ?> remoteOperations = mapRemoteOperations();
     Runnable preShutdownAction;
+    boolean skipCloseOnExitHook = false;
     private String name;
     // not final because of cloning
     private ChronicleMapBuilderPrivateAPI<K, V> privateAPI =
@@ -730,6 +731,8 @@ public final class ChronicleMapBuilder<K, V> implements
         }
         if (actualChunkSize <= 0)
             throw new IllegalArgumentException("Chunk size must be positive");
+        if (alignment > 0 && actualChunkSize % alignment != 0)
+            throw new IllegalArgumentException("The chunk size (" + actualChunkSize + ") must be a multiple of the alignment (" + alignment + ")");
         this.actualChunkSize = actualChunkSize;
         return this;
     }
@@ -928,8 +931,15 @@ public final class ChronicleMapBuilder<K, V> implements
         }
         if (Jvm.isArm() && alignment < 8)
             return this;
+        validateAlignment(actualChunkSize, actualChunkSize, alignment);
+
         this.alignment = alignment;
         return this;
+    }
+
+    public void validateAlignment(int ifSet, int actualChunkSize, int alignment) {
+        if (ifSet > 0 && actualChunkSize % alignment != 0)
+            throw new IllegalArgumentException("The chunk size (" + actualChunkSize + ") must be a multiple of the alignment (" + alignment + ")");
     }
 
     int valueAlignment() {
@@ -937,7 +947,9 @@ public final class ChronicleMapBuilder<K, V> implements
             return alignment;
         try {
             if (Values.isValueInterfaceOrImplClass(valueBuilder.tClass)) {
-                return ValueModel.acquire(valueBuilder.tClass).recommendedOffsetAlignment();
+                int alignment = ValueModel.acquire(valueBuilder.tClass).recommendedOffsetAlignment();
+                validateAlignment(alignment, actualChunkSize, alignment);
+                return alignment;
             } else {
                 return NO_ALIGNMENT;
             }
@@ -1593,6 +1605,12 @@ public final class ChronicleMapBuilder<K, V> implements
     @Override
     public ChronicleMapBuilder<K, V> setPreShutdownAction(Runnable preShutdownAction) {
         this.preShutdownAction = preShutdownAction;
+        return this;
+    }
+
+    @Override
+    public ChronicleMapBuilder<K, V> skipCloseOnExitHook(boolean skipCloseOnExitHook) {
+        this.skipCloseOnExitHook = skipCloseOnExitHook;
         return this;
     }
 

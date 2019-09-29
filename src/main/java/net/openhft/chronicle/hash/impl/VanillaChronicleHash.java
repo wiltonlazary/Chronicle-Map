@@ -38,6 +38,7 @@ import net.openhft.chronicle.map.ChronicleMapBuilder;
 import net.openhft.chronicle.values.Values;
 import net.openhft.chronicle.wire.Marshallable;
 import net.openhft.chronicle.wire.WireIn;
+import net.openhft.chronicle.wire.WireInternal;
 import net.openhft.chronicle.wire.WireOut;
 import org.jetbrains.annotations.NotNull;
 
@@ -46,6 +47,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.lang.ref.WeakReference;
+import java.lang.reflect.Type;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
@@ -93,7 +95,7 @@ public abstract class VanillaChronicleHash<K,
     public transient boolean createdOrInMemory;
     /////////////////////////////////////////////////
     // Key Data model
-    public Class<K> keyClass;
+    public Type keyClass;
     public SizeMarshaller keySizeMarshaller;
     public SizedReader<K> keyReader;
     public DataAccess<K> keyDataAccess;
@@ -126,6 +128,7 @@ public abstract class VanillaChronicleHash<K,
     public transient Identity identity;
     protected int log2TiersInBulk;
     private Runnable preShutdownAction;
+    private boolean skipCloseOnExitHook;
     /////////////////////////////////////////////////
     // Bytes Store (essentially, the base address) and serialization-dependent offsets
     protected transient BytesStore bs;
@@ -211,6 +214,7 @@ public abstract class VanillaChronicleHash<K,
         checksumEntries = privateAPI.checksumEntries();
 
         preShutdownAction = privateAPI.getPreShutdownAction();
+        skipCloseOnExitHook = privateAPI.skipCloseOnExitHook();
     }
 
     public static IOException throwRecoveryOrReturnIOException(
@@ -245,7 +249,7 @@ public abstract class VanillaChronicleHash<K,
         // that doesn't guarantee (?) to initialize fields with default values (false for boolean)
         createdOrInMemory = false;
 
-        keyClass = wireIn.read(() -> "keyClass").typeLiteral();
+        keyClass = wireIn.read(() -> "keyClass").lenientTypeLiteral();
         keySizeMarshaller = wireIn.read(() -> "keySizeMarshaller").object(SizeMarshaller.class);
         keyReader = wireIn.read(() -> "keyReader").object(SizedReader.class);
         keyDataAccess = wireIn.read(() -> "keyDataAccess").object(DataAccess.class);
@@ -476,7 +480,9 @@ public abstract class VanillaChronicleHash<K,
     }
 
     public void addToOnExitHook() {
-        ChronicleHashCloseOnExitHook.add(this);
+        if (!skipCloseOnExitHook) {
+            ChronicleHashCloseOnExitHook.add(this);
+        }
     }
 
     public final void createMappedStoreAndSegments(ChronicleHashResources resources)
@@ -664,7 +670,9 @@ public abstract class VanillaChronicleHash<K,
         // Releases nothing after resources.releaseManually(), only removes the cleaner
         // from the internal linked list of all cleaners.
         cleaner.clean();
-        ChronicleHashCloseOnExitHook.remove(this);
+        if (!skipCloseOnExitHook) {
+            ChronicleHashCloseOnExitHook.remove(this);
+        }
         // Make GC life easier
         keyReader = null;
         keyDataAccess = null;
@@ -676,8 +684,10 @@ public abstract class VanillaChronicleHash<K,
     }
 
     public final void checkKey(Object key) {
+        Class<K> keyClass = keyClass();
         if (!keyClass.isInstance(key)) {
-            // key.getClass will cause NPE exactly as needed
+            if (key == null)
+                throw new NullPointerException("null key not supported");
             throw new ClassCastException(toIdentityString() + ": Key must be a " +
                     keyClass.getName() + " but was a " + key.getClass());
         }
@@ -708,8 +718,8 @@ public abstract class VanillaChronicleHash<K,
 
         // int division is MUCH faster than long on Intel CPUs
         if (sizeInBytes <= Integer.MAX_VALUE)
-            return (((int) sizeInBytes) / (int) chunkSize) + 1;
-        return (int) (sizeInBytes / chunkSize) + 1;
+            return (int) (sizeInBytes + chunkSize - 1) / (int) chunkSize;
+        return Math.toIntExact((sizeInBytes + chunkSize - 1) / chunkSize);
     }
 
     public final int size() {

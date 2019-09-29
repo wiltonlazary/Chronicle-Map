@@ -43,7 +43,7 @@ public class ByteArrayDataAccess extends AbstractData<byte[]> implements DataAcc
     }
 
     private void initTransients() {
-        bs = HeapBytesStore.uninitialized();
+        bs = null;
     }
 
     @Override
@@ -77,14 +77,14 @@ public class ByteArrayDataAccess extends AbstractData<byte[]> implements DataAcc
     @Override
     public Data<byte[]> getData(@NotNull byte[] instance) {
         array = instance;
-        bs.init(instance);
+        bs = HeapBytesStore.wrap(array);
         return this;
     }
 
     @Override
     public void uninit() {
         array = null;
-        bs.uninit();
+        bs = null;
     }
 
     @Override
@@ -101,5 +101,10 @@ public class ByteArrayDataAccess extends AbstractData<byte[]> implements DataAcc
     public void readMarshallable(@NotNull WireIn wireIn) {
         // no fields to read
         initTransients();
+    }
+
+    @Override
+    public String toString() {
+        return new String(array, 0, 0, array.length);
     }
 }
